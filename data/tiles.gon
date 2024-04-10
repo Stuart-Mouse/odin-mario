@@ -1,0 +1,34 @@
+
+"ground" {
+  collision_flags [ SOLID ]
+  frames [ [ 1, 0 ] ]
+}
+
+"solid block" {
+  collision_flags [ SOLID ]
+  frames [ [ 2, 0 ] ]
+}
+
+"brick block" {
+  collision_flags [ SOLID, BUMPABLE, BREAKABLE ]
+  frames [ [ 3, 0 ] ]
+}
+
+"item block" {
+  collision_flags [ SOLID, BUMPABLE, CONTAINER ]
+  frames [
+    [ 4, 0, 0.35 ]
+    [ 4, 1, 0.15 ]
+    [ 4, 2, 0.15 ]
+    [ 4, 1, 0.15 ]
+  ]
+  become_on_use next
+}
+
+"item block (used)" {
+  collision_flags [ SOLID ]
+  frames [ [ 5, 0 ] ]
+}
+
+
+

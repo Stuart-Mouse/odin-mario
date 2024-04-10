@@ -1,0 +1,12 @@
+
+build/
+.vscode/
+*.exe
+*.pdb
+
+notes.md
+
+imgui.ini
+ols.json
+
+SDL2.dll
