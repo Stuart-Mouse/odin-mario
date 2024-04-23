@@ -12,26 +12,30 @@ EditorInputKeys :: enum {
   RIGHT,
   TOGGLE_TILE_PICKER,
   CAMERA_DRAG,
+  SET_PLAYER_START,
   COUNT,
 }
 
 editor_controller : [EditorInputKeys.COUNT] InputKey = {
-  EditorInputKeys.UP    = { sc = .UP    },
+    EditorInputKeys.UP    = { sc = .UP    },
 	EditorInputKeys.DOWN  = { sc = .DOWN  },
 	EditorInputKeys.LEFT  = { sc = .LEFT  },
 	EditorInputKeys.RIGHT = { sc = .RIGHT },
 	EditorInputKeys.TOGGLE_TILE_PICKER = { sc = .T },
 	EditorInputKeys.CAMERA_DRAG = { sc = .SPACE },
+	EditorInputKeys.SET_PLAYER_START = { sc = .P },
 }
 
 EditorState : struct {
-  mouse_tile_index    : i32,
+    mouse_tile_index    : i32,
 	selected_type	      : typeid,
 	selected_entity	    : Entity,
-  selected_tile_id    : u32,
-  show_tile_picker    : bool,
-  camera              : Camera,
-  mouse_tile_position : Vector2,
+    selected_tile_id    : u32,
+    show_tile_picker    : bool,
+    camera              : Camera,
+    mouse_tile_position : Vector2,
+  
+    editting_level : Level_Data,
 }
 
 EDITOR_TILE_UNIT : f32 = 32.0
@@ -87,7 +91,7 @@ update_editor :: proc() {
   screen_render_width  := EDITOR_TILE_UNIT * SCREEN_TILE_WIDTH
   screen_render_height := EDITOR_TILE_UNIT * SCREEN_TILE_HEIGHT
 
-  tilemap := &active_level.tilemap
+  tilemap := &editting_level.tilemap
 
   // get mouse position in the game world
   mouse_tile_position = pixel_to_internal_units(
@@ -115,7 +119,7 @@ update_editor :: proc() {
       }
     }
     else if selected_type == Entity && Mouse.left == KEYSTATE_PRESSED {
-      slot := get_next_empty_slot(&active_level.entities)
+      slot := get_next_empty_slot(&editting_level.entities)
       if slot != nil {
         slot.occupied = true
         // init_entity(&slot.data, selected_entity)
@@ -128,20 +132,27 @@ update_editor :: proc() {
     }
   }
 
+  if bool(editor_controller[SET_PLAYER_START].state & KEYSTATE_PRESSED) {
+    editting_level.plumber.position = {
+      snap_to_nearest_unit(mouse_tile_position.x, 0.5),
+      snap_to_nearest_unit(mouse_tile_position.y, 0.5),
+    }
+  }
+
   @static entity_details_popup_target : ^Slot(Entity)
   @static tile_details_popup_target : ^Tile
 
   if Mouse.right == KEYSTATE_PRESSED {
     clicked_entity := false
-    for &slot in active_level.entities.slots {
-			e     := &slot.data
-			frect := get_entity_collision_rect(e^)
-			if is_point_within_frect(mouse_tile_position, frect) {
-        clicked_entity = true
-        entity_details_popup_target = &slot
-        imgui.OpenPopup("Entity Details Popup", {})
-			}
-		}
+    for &slot in editting_level.entities.slots {
+	    e     := &slot.data
+	    frect := get_entity_collision_rect(e^)
+	    if is_point_within_frect(mouse_tile_position, frect) {
+            clicked_entity = true
+            entity_details_popup_target = &slot
+            imgui.OpenPopup("Entity Details Popup", {})
+	    }
+    }
     if !clicked_entity {
       tile := get_tile(tilemap, mouse_tile_index)
       if tile != nil {
@@ -181,6 +192,45 @@ update_editor :: proc() {
       imgui.SameLine()
       if imgui.ImageButtonEx("Mushroom", entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
         tile_details_popup_target.contains = .MUSHROOM
+        imgui.CloseCurrentPopup()
+      }
+      img_uv0  = { 
+        32 / f32(entities_texture.width ), 
+        16 / f32(entities_texture.height),
+      }
+      img_uv1  = { 
+        48 / f32(entities_texture.width ), 
+        32 / f32(entities_texture.height),
+      }
+      imgui.SameLine()
+      if imgui.ImageButtonEx("Shell", entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
+        tile_details_popup_target.contains = .SHELL
+        imgui.CloseCurrentPopup()
+      }
+      img_uv0  = { 
+         0 / f32(entities_texture.width ), 
+        16 / f32(entities_texture.height),
+      }
+      img_uv1  = { 
+        16 / f32(entities_texture.width ), 
+        32 / f32(entities_texture.height),
+      }
+      imgui.SameLine()
+      if imgui.ImageButtonEx("Beetle", entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
+        tile_details_popup_target.contains = .BEETLE
+        imgui.CloseCurrentPopup()
+      }
+      img_uv0  = { 
+        f32(koopa_animation_clips[0].x) / f32(entities_texture.width ), 
+        f32(koopa_animation_clips[0].y) / f32(entities_texture.height),
+      }
+      img_uv1  = { 
+        f32(koopa_animation_clips[0].x + 16) / f32(entities_texture.width ), 
+        f32(koopa_animation_clips[0].y + 16) / f32(entities_texture.height),
+      }
+      imgui.SameLine()
+      if imgui.ImageButtonEx("Koopa", entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
+        tile_details_popup_target.contains = .KOOPA
         imgui.CloseCurrentPopup()
       }
     }
@@ -231,7 +281,7 @@ update_editor :: proc() {
       }
     }
 
-		imgui.SeparatorText("Entities")
+	imgui.SeparatorText("Entities")
     img_uv0  = {  0,  0 }
     img_uv1  = { 
       16 / f32(entities_texture.width ), 
@@ -268,6 +318,33 @@ update_editor :: proc() {
       selected_type   = Entity
       init_entity(&selected_entity, .SHELL)
     }
+    img_uv0  = { 
+       0 / f32(entities_texture.width ), 
+      16 / f32(entities_texture.height),
+    }
+    img_uv1  = { 
+      16 / f32(entities_texture.width ), 
+      32 / f32(entities_texture.height),
+    }
+    imgui.SameLine()
+    if imgui.ImageButtonEx("Beetle", entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
+      selected_type   = Entity
+      init_entity(&selected_entity, .BEETLE)
+    }
+    img_uv0  = { 
+      f32(koopa_animation_clips[0].x) / f32(entities_texture.width ), 
+      f32(koopa_animation_clips[0].y) / f32(entities_texture.height),
+    }
+    img_uv1  = { 
+      f32(koopa_animation_clips[0].x + 16) / f32(entities_texture.width ), 
+      f32(koopa_animation_clips[0].y + 16) / f32(entities_texture.height),
+    }
+    imgui.SameLine()
+    if imgui.ImageButtonEx("Koopa", entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
+      selected_type   = Entity
+      init_entity(&selected_entity, .KOOPA)
+    }
+
 
     imgui.End()
   }
@@ -286,13 +363,13 @@ render_editor :: proc() {
   sdl.RenderFillRect(renderer, &{
     x = i32(-camera.position.x * EDITOR_TILE_UNIT),
     y = i32(-camera.position.y * EDITOR_TILE_UNIT),
-    w = active_level.tilemap.size.x * i32(EDITOR_TILE_UNIT),
-    h = active_level.tilemap.size.y * i32(EDITOR_TILE_UNIT),
+    w = editting_level.tilemap.size.x * i32(EDITOR_TILE_UNIT),
+    h = editting_level.tilemap.size.y * i32(EDITOR_TILE_UNIT),
   })
 
-  render_tilemap(&active_level.tilemap, EDITOR_TILE_UNIT, -camera.position)
-  render_plumber(&active_level.plumber, EDITOR_TILE_UNIT, -camera.position)
-  for &slot in active_level.entities.slots {
+  render_tilemap(&editting_level.tilemap, EDITOR_TILE_UNIT, -camera.position)
+  render_plumber(&editting_level.plumber, EDITOR_TILE_UNIT, -camera.position)
+  for &slot in editting_level.entities.slots {
     if slot.occupied do render_entity(slot.data, EDITOR_TILE_UNIT, -camera.position)
   }
   render_grid(
@@ -303,7 +380,7 @@ render_editor :: proc() {
   mouse_tile_rect := get_grid_tile_rect(
     mouse_tile_index, 
     { EDITOR_TILE_UNIT, EDITOR_TILE_UNIT }, 
-    active_level.tilemap.size, 
+    editting_level.tilemap.size, 
     -camera.position, 
   )
   

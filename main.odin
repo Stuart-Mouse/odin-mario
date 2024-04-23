@@ -39,6 +39,7 @@ ProgramInputKeys :: enum {
   TOGGLE_IMGUI_RENDER_ABOVE,
   PAUSE,
   STEP_FRAME,
+  RESET,
   COUNT,
 }
 
@@ -50,6 +51,9 @@ program_controller : [ProgramInputKeys.COUNT] InputKey = {
 
   ProgramInputKeys.PAUSE      = { sc = .F9  },
   ProgramInputKeys.STEP_FRAME = { sc = .F10 },
+
+  ProgramInputKeys.RESET = { sc = .F6 },
+
 }
 
 GameState : struct {
@@ -109,10 +113,6 @@ init_application :: proc() -> bool {
   entities_texture   = load_texture(renderer, "data/gfx/entities.png" ) or_return
   decor_texture      = load_texture(renderer, "data/gfx/decor.png"    ) or_return
 
-  {
-    using EditorState
-    selected_type = Tile
-  }
 
 	imgui.CHECKVERSION()
 	imgui.CreateContext(nil)
@@ -126,36 +126,49 @@ init_application :: proc() -> bool {
 }
 
 init_game :: proc() -> bool {
-  using GameState.active_level
+  {
+    using GameState.active_level
 
-  init_plumber_controller(&plumber)
-  plumber.position = { SCREEN_TILE_WIDTH / 2, SCREEN_TILE_HEIGHT / 2 }
-  plumber.scale = { 1, 1 }
-
-  load_tile_info()
-
-  init_plumber_physics()
-
-  tilemap.size = { LEVEL_TILE_WIDTH, SCREEN_TILE_HEIGHT }
-
-  for j in 0..<tilemap.size.x {
-    get_tile(&tilemap,  j, 13)^ = { id = 1 }
-    get_tile(&tilemap,  j, 14)^ = { id = 1 }
+    init_plumber_controller(&plumber)
+    plumber.position = { SCREEN_TILE_WIDTH / 2, SCREEN_TILE_HEIGHT / 2 }
+    plumber.scale = { 1, 1 }
+  
+    load_tile_info()
+  
+    init_plumber_physics()
+  
+    init_tilemap(&tilemap)
+  
+    position_x : f32 = 0.0
+    for position_x < LEVEL_TILE_WIDTH {
+      position_x += f32(SCREEN_TILE_WIDTH) * (rand.float32() * 0.5 + 0.5)
+      using GameState.active_level
+      slot := get_next_slot(&particles[1])
+      slot.occupied = true
+      slot.data = {
+        velocity = { -(0.01 + rand.float32() * 0.05), 0 },
+        position = { position_x, rand.float32() * 4 },
+        scale    = { 1, 1 },
+        animation = {
+        frame_count = 1,
+          frames = {
+            {
+              clip = { 0, 0, 48, 24 },
+            },
+            {}, {}, {}, {}, {}, {}, {},
+          },
+        },
+        texture  = decor_texture.sdl_texture,
+      }
+    }
   }
 
-  position_x : f32 = 0.0
-  for position_x < LEVEL_TILE_WIDTH {
-    position_x += f32(SCREEN_TILE_WIDTH) * (rand.float32() * 0.5 + 0.5)
-    using GameState.active_level
-    slot := get_next_slot(&particles[1])
-    slot.occupied = true
-    slot.data = {
-      velocity = { -(0.01 + rand.float32() * 0.05), 0 },
-      position = { position_x, rand.float32() * 4 },
-      scale    = { 1, 1 },
-      clip     = { 0, 0, 48, 32 },
-      texture  = decor_texture.sdl_texture,
-    }
+  {
+    using EditorState
+    selected_type = Tile
+    init_tilemap(&editting_level.tilemap)
+    editting_level.plumber.position = { SCREEN_TILE_WIDTH / 2, SCREEN_TILE_HEIGHT / 2 }
+    editting_level.plumber.scale = { 1, 1 }
   }
 
   return true
@@ -187,11 +200,19 @@ update_game :: proc() {
     slot := get_next_slot(&particles[1])
     slot.occupied = true
     slot.data = {
-      velocity = { -(0.01 + rand.float32() * 0.05), 0 },
-      position = { LEVEL_TILE_WIDTH + 2, rand.float32() * 4 },
-      scale    = { 1, 1 },
-      clip     = { 0, 0, 48, 32 },
-      texture  = decor_texture.sdl_texture,
+      velocity  = { -(0.01 + rand.float32() * 0.05), 0 },
+      position  = { LEVEL_TILE_WIDTH + 2, rand.float32() * 4 },
+      scale     = { 1, 1 },
+      texture   = decor_texture.sdl_texture,
+      animation = {
+        frame_count = 1,
+        frames = {
+          {
+            clip = { 0, 0, 48, 24 },
+          },
+          {}, {}, {}, {}, {}, {}, {},
+        },
+      },
     }
   }
 }
@@ -202,6 +223,8 @@ render_game :: proc() {
     if slot.occupied do render_particle(&slot.data, TILE_RENDER_SIZE, -camera.position)
   }
   render_tilemap(&tilemap, TILE_RENDER_SIZE, -camera.position)
+  render_small_text("MARIO", {32, 16}, 0, 0, 2)
+  render_small_text(fmt.tprintf("%6v", plumber.score), {32, 32}, 0, 0, 2)
   render_plumber(&plumber, TILE_RENDER_SIZE, -camera.position)
   for &slot in entities.slots {
     if slot.occupied do render_entity(slot.data, TILE_RENDER_SIZE, -camera.position)
@@ -212,17 +235,17 @@ render_game :: proc() {
 }
 
 close_application :: proc() {
-  imgui_impl_sdlrenderer2.Shutdown()
-  imgui_impl_sdl2.Shutdown()
-  imgui.DestroyContext(nil)
+    imgui_impl_sdlrenderer2.Shutdown()
+    imgui_impl_sdl2.Shutdown()
+    imgui.DestroyContext(nil)
 
-	// sdl_mixer.FreeChunk(sound_bloop_1)
-	// sdl_mixer.FreeChunk(sound_bloop_2)
-	// sdl_mixer.CloseAudio()
-
-	sdl.DestroyRenderer(renderer)
-	sdl.DestroyWindow(window)
-	sdl.Quit()
+    // sdl_mixer.FreeChunk(sound_bloop_1)
+    // sdl_mixer.FreeChunk(sound_bloop_2)
+    // sdl_mixer.CloseAudio()
+    
+    sdl.DestroyRenderer(renderer)
+    sdl.DestroyWindow(window)
+    sdl.Quit()
 }
 
 handle_sdl_events :: proc() {
@@ -261,6 +284,32 @@ main :: proc() {
     }
     if program_controller[ProgramInputKeys.PAUSE].state == KEYSTATE_PRESSED {
       GameState.paused = !GameState.paused
+    }
+    if program_controller[ProgramInputKeys.RESET].state == KEYSTATE_PRESSED {
+      GameState.active_level = EditorState.editting_level
+      init_plumber_controller(&GameState.active_level.plumber)
+      position_x : f32 = 0.0
+      for position_x < LEVEL_TILE_WIDTH {
+        position_x += f32(SCREEN_TILE_WIDTH) * (rand.float32() * 0.5 + 0.5)
+        using GameState.active_level
+        slot := get_next_slot(&particles[1])
+        slot.occupied = true
+        slot.data = {
+          velocity = { -(0.01 + rand.float32() * 0.05), 0 },
+          position = { position_x, rand.float32() * 4 },
+          scale    = { 1, 1 },
+          animation = {
+            frame_count = 1,
+            frames = {
+              {
+                clip     = { 0, 0, 48, 24 },
+              },
+              {}, {}, {}, {}, {}, {}, {},
+            },
+          },
+          texture = decor_texture.sdl_texture,
+        }
+      }
     }
 
     sdl.SetRenderDrawColor(renderer, u8(sky_color.r * 255), u8(sky_color.g * 255), u8(sky_color.b * 255), u8(sky_color.a * 255))

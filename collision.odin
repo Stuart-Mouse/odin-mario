@@ -17,6 +17,7 @@ aabb_rect :: proc(r1, r2 : SDL.Rect) -> bool {
            r1.y + r1.h < r2.y        )
 }
 
+// TODO: this should return -1 if there is no collision and 0 should be player already in collision at start of frame. no idea why id did it so unintuitively the first time around
 swept_aabb_frect :: proc(r1 : SDL.FRect, v1 : Vector2, r2 : SDL.FRect, v2 : Vector2) -> (int, f32, Direction) {
 	// check if rectangles are in collision at time == 0
 	if (aabb_frect(r1, r2)) {

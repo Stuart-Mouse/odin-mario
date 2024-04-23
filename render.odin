@@ -36,6 +36,8 @@ load_texture :: proc(renderer: ^SDL.Renderer, filename: string) -> (texture: Tex
 
 // 8x8 bitmap text rendering functions
 
+// text align ranges from 0-1, corresponding to where in the string to treat as the attachment point
+// so for example, 0 is left-align, 0.5 is centered, 1 is right-aligned
 render_small_text :: proc(text: string, position: Vec2i, max_len: int, text_align, scale: f32) {
   position := position
   str_len  := len(text)

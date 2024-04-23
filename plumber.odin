@@ -30,7 +30,6 @@ Plumber_Physics : struct {
   air_decel           : f32,
   coyote_time         : f32,
   coyote_frames       : i32,
-
 }
 
 init_plumber_physics :: proc() {
@@ -90,6 +89,10 @@ Plumber :: struct {
   scale         : Vector2,
   controller    : [Plumber_Input_Keys.COUNT] InputKey,
   powerup       : Powerup,
+  coins         : int,
+  score         : int,
+  seq_bounces   : int,
+  lives         : int,
 
   anim_state    : Plumber_Animation_States,
   anim_frame    : f32,
@@ -233,10 +236,22 @@ update_plumber :: proc(using plumber: ^Plumber) {
     apply_jump_force := lerp(jump_force, run_jump_force, jump_percent)
     velocity.y = -apply_jump_force
   }
-
+  
   velocity.y = min(velocity.y, max_fall_speed)
 
   position += velocity
+    
+  if powerup == .FIRE && .CROUCHING not_in flags && bool(controller[RUN].state == KEYSTATE_PRESSED) {
+    slot := get_next_empty_slot(&GameState.active_level.entities)
+    if slot != nil {
+      slot.occupied = true
+      init_entity(&slot.data, .FIREBALL)
+      
+      facing_mul : f32 = .FACING_LEFT in flags ? -1 : 1
+      slot.data.base.position = plumber.position + Vector2 { 0.5 * facing_mul, 0 }
+      slot.data.base.velocity = Vector2 { 0.2 * facing_mul, 0.1 }
+    }
+  }
 
   flags &= ~{ .ON_GROUND }
   size, offset := get_plumber_collision_size_and_offset(plumber^)
@@ -266,6 +281,21 @@ update_plumber :: proc(using plumber: ^Plumber) {
     using collision_results
     collision_results = do_tilemap_collision(&GameState.active_level.tilemap, position, size, offset)
     position += position_adjust
+    
+    // collect coins
+    for &tile in indexed_tiles {
+        if tile == nil do continue
+        if get_tile_collision(tile^).type == .COIN {
+            coins += 1
+            if coins == 100 {
+                lives += 1
+                coins = 0
+            }
+            tile^ = {}
+        }
+    }
+    
+    // bump/break tiles the player hits with their head
     for dir in ([]Direction{ .U, .UL, .UR }) {
       tile := indexed_tiles[dir]
       if tile == nil            do continue
@@ -314,6 +344,11 @@ update_plumber :: proc(using plumber: ^Plumber) {
       if velocity.x > 0 do velocity.x = 0
     }
   }
+  
+  if .ON_GROUND in flags {
+    seq_bounces = 0
+  }
+
 
   // update camera
   {
@@ -517,4 +552,60 @@ get_plumber_collision_size_and_offset :: proc(using plumber: Plumber) -> (size, 
       }
   }
   return
+}
+
+add_bounce_score :: proc(using plumber: ^Plumber, spawn_position: Vector2) {
+    bounce_scores := []int {
+        100, 200, 400, 500, 800, 1000, 2000, 4000, 5000, 8000
+    }
+    
+    if seq_bounces < 0 do seq_bounces = 0
+    if seq_bounces >= len(bounce_scores) {
+        plumber.lives += 1
+    } else {
+        plumber.score += bounce_scores[plumber.seq_bounces]
+    }
+    
+    spawn_score_particle(seq_bounces, spawn_position)
+    
+    seq_bounces = min(seq_bounces + 1, len(bounce_scores))
+}
+
+spawn_score_particle :: proc(score_index: int, spawn_position: Vector2) {    
+    score_particles_clips := []sdl.Rect {
+        {  0, 24, 16,  8 }, // 100
+        {  0, 32, 16,  8 }, // 200
+        {  0, 40, 16,  8 }, // 400
+        {  0, 48, 16,  8 }, // 500
+        {  0, 56, 16,  8 }, // 800
+        
+        { 16, 24, 16,  8 }, // 1000
+        { 16, 32, 16,  8 }, // 2000
+        { 16, 40, 16,  8 }, // 4000
+        { 16, 48, 16,  8 }, // 5000
+        { 16, 56, 16,  8 }, // 8000
+        { 16, 64, 16,  8 }, // 1-UP
+    }
+    
+    if score_index < 0 || score_index >= len(score_particles_clips) do return
+    
+    using GameState.active_level
+    slot := get_next_slot(&particles[0])
+    slot.occupied = true
+    slot.data = {
+        velocity  = { 0, -0.03 },
+        position  = spawn_position,
+        scale     = { 1, 1 },
+        texture   = decor_texture.sdl_texture,
+        animation = {
+            frame_count = 2,
+            frames = {
+                {
+                    clip = score_particles_clips[score_index],
+                    duration = 30,
+                },
+                {}, {}, {}, {}, {}, {}, {},
+            },
+        },
+    }
 }

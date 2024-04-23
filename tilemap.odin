@@ -15,11 +15,17 @@ TILE_TEXTURE_SIZE :: 16
 TILE_RENDER_SIZE  :: 32
 
 Tile_Collision :: struct {
+  type  : Tile_Collision_Type,
   flags : Tile_Collision_Flags,
 }
 
+Tile_Collision_Type :: enum {
+    BLOCK,
+    COIN,
+}
+
 Tile_Collision_Flags :: bit_set[Tile_Collision_Flag]
-Tile_Collision_Flag :: enum {
+Tile_Collision_Flag  :: enum {
   SOLID,      // the player will be pushed out of the tile
   BUMPABLE,   // will be bumped when hit, but not broken
   BREAKABLE,  // will break when hit
@@ -70,8 +76,9 @@ update_tilemap :: proc(using tilemap: ^Tilemap) {
 
     if .BUMPABLE in ti.collision.flags {
       if tile.bump_clock > 0 {
+        tile.bump_clock -= 1
         if .CONTAINER in ti.collision.flags {
-          if tile.bump_clock == TILE_BUMP_TIME && tile.contains != nil {
+          if tile.contains != nil {
             slot := get_next_empty_slot(&GameState.active_level.entities)
             init_entity(&slot.data, tile.contains)
             position := Vector2 { f32(i32(index) % size.x), f32(i32(index) / size.x) }
@@ -80,19 +87,16 @@ update_tilemap :: proc(using tilemap: ^Tilemap) {
             slot.occupied = true
             tile.contains = nil
           }
-          if tile.bump_clock == 1 {
-            fmt.println(tile)
+          if tile.bump_clock == 0 {
             tile = { id = ti.become_on_use }
-            fmt.println(tile)
             continue
           }
         }
         if .BROKEN in tile.flags {
-          if tile.bump_clock == 1 {
+          if tile.bump_clock == 0 {
             tile = {}
           }
         }
-        tile.bump_clock -= 1
       }
     }
   }
@@ -216,6 +220,14 @@ Tilemap :: struct {
   size : Vec2i,
 }
 
+init_tilemap :: proc(tilemap: ^Tilemap) {
+  tilemap.size = { LEVEL_TILE_WIDTH, SCREEN_TILE_HEIGHT }
+  for j in 0..<tilemap.size.x {
+    get_tile(tilemap,  j, 13)^ = { id = 1 }
+    get_tile(tilemap,  j, 14)^ = { id = 1 }
+  }
+}
+
 get_tile :: proc {
   get_tile_1D,
   get_tile_2D,
@@ -334,7 +346,7 @@ do_tilemap_collision :: proc(tilemap: ^Tilemap, position, size, offset: Vector2)
       push_out |= { Direction(dir_i) }
     }
 		
-		results.indexed_tiles[Direction(dir_i)] = tile
+	results.indexed_tiles[Direction(dir_i)] = tile
   }
 
   results.indices  = indices
@@ -426,10 +438,12 @@ do_tilemap_collision :: proc(tilemap: ^Tilemap, position, size, offset: Vector2)
   return results
 }
 
+tile_is_bumping :: proc(tile: Tile) -> bool {
+    return tile.bump_clock > TILE_BUMP_TIME-2 //&& .BROKEN not_in tile.flags
+}
 
 save_level :: proc(path: string) {
-  using GameState.active_level.tilemap
-  if !os.write_entire_file(path, slice.to_bytes(data[:])) {
+  if !os.write_entire_file(path, mem.any_to_bytes(EditorState.editting_level)) {
     fmt.println("Failed to save level:", path)
     return
   }
@@ -440,7 +454,7 @@ load_level :: proc(path: string) {
   bytes, ok := os.read_entire_file(path)
   defer delete(bytes)
   if ok {
-    dst := &GameState.active_level.tilemap.data
+    dst := &EditorState.editting_level
     mem.copy(dst, &bytes[0], size_of(dst^))
     fmt.println("Loaded level:", path)
     return
@@ -495,13 +509,21 @@ create_block_break_particles :: proc(
         },
         acceleration = {  0, Plumber_Physics.fall_gravity },
         angular_velocity = lerp(vel_ax[0], vel_ax[1], vel_lerp.x) + lerp(vel_ay[0], vel_ay[1], vel_lerp.y) + vel_var.z,
-        clip = {
-          x = render_info.clip.x + i32(clip_size.x * f32(piece_x)),
-          y = render_info.clip.y + i32(clip_size.y * f32(piece_y)),
-          w = i32(clip_size.x),
-          h = i32(clip_size.y),
-        },
         texture = tiles_texture.sdl_texture,
+        animation = {
+          frame_count = 1,
+          frames = {
+            {
+              clip = {
+                x = render_info.clip.x + i32(clip_size.x * f32(piece_x)),
+                y = render_info.clip.y + i32(clip_size.y * f32(piece_y)),
+                w = i32(clip_size.x),
+                h = i32(clip_size.y),
+              },
+            },
+            {}, {}, {}, {}, {}, {}, {},
+          },
+        },
       }
       fmt.println("spawned particle:", slot.data)
     }
