@@ -89,6 +89,8 @@ update_shell :: proc(using shell: ^Entity_Shell) -> bool {
             velocity = 0
             player.velocity.y = -Plumber_Physics.bounce_force
             add_bounce_score(player, position)
+          case:
+            change_player_powerup_state(player, player.powerup - Powerup(1))
         }
       }
       for &slot in GameState.active_level.entities.slots {

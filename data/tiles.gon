@@ -155,6 +155,7 @@ tiles [
     
     {
       name "grass platform left" 
+      collision [ BLOCK [ SOLID ]]
       frames [ 
         [[ 4, 4 ] 0 ]
       ]
@@ -162,6 +163,7 @@ tiles [
     
     {
       name "grass platform middle" 
+      collision [ BLOCK [ SOLID ]]
       frames [ 
         [[ 5, 4 ] 0 ]
       ]
@@ -169,6 +171,7 @@ tiles [
     
     {
       name "grass platform right" 
+      collision [ BLOCK [ SOLID ]]
       frames [ 
         [[ 6, 4 ] 0 ]
       ]

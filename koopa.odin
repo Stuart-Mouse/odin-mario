@@ -83,6 +83,8 @@ update_koopa :: proc(koopa: ^Koopa) -> bool {
           velocity = 0
           p.velocity.y = -Plumber_Physics.bounce_force
           add_bounce_score(p, position)
+        } else {
+          change_player_powerup_state(p, p.powerup - Powerup(1))
         }
       }
     }

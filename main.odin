@@ -59,6 +59,10 @@ program_controller : [ProgramInputKeys.COUNT] InputKey = {
 GameState : struct {
   active_level : Level_Data,
   paused : bool,
+  powerup_state_change_anim: struct {
+    from, to : Powerup,
+    timer    : int,
+  }
 }
 
 Level_Data :: struct {
@@ -176,7 +180,9 @@ init_game :: proc() -> bool {
 
 update_game :: proc() {
   using GameState.active_level
+  
   update_plumber(&plumber)
+  
   for &slot, i in entities.slots {
     if slot.occupied {
       if !update_entity(&slot.data) {
@@ -184,10 +190,13 @@ update_game :: proc() {
       }
     }
   }
+  
   for &bank in particles {
     for &slot in bank.slots {
       if slot.occupied {
-        if !update_particle(&slot.data) do slot.occupied = {}
+        if !update_particle(&slot.data) { 
+          slot.occupied = {}
+        }
       }
     } 
   }
@@ -322,7 +331,15 @@ main :: proc() {
     imgui_update()
     switch(program_mode) {
       case .GAME:
-        if !GameState.paused || program_controller[ProgramInputKeys.STEP_FRAME].state == KEYSTATE_PRESSED {
+        if GameState.powerup_state_change_anim.timer > 0 {
+            GameState.powerup_state_change_anim.timer -= 1
+            if ((GameState.powerup_state_change_anim.timer * 5 / POWERUP_STATE_CHANGE_TIME) & 1) == 0 {
+                GameState.active_level.plumber.powerup = GameState.powerup_state_change_anim.to
+            } else {
+                GameState.active_level.plumber.powerup = GameState.powerup_state_change_anim.from
+            }
+        }
+        else if !GameState.paused || program_controller[ProgramInputKeys.STEP_FRAME].state == KEYSTATE_PRESSED {
           update_game()
         }
         render_game()

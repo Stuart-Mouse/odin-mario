@@ -82,6 +82,8 @@ Plumber_Input_Keys :: enum {
   COUNT,
 }
 
+POWERUP_STATE_CHANGE_TIME :: 50
+
 Plumber :: struct {
   position_prev : Vector2,
   position      : Vector2,
@@ -110,13 +112,21 @@ Plumber_Flag :: enum {
   CROUCHING,
 }
 
+change_player_powerup_state :: proc(plumber: ^Plumber, powerup: Powerup) {
+    if powerup < Powerup(0) do return
+    GameState.powerup_state_change_anim.from  = plumber.powerup
+    plumber.powerup = powerup
+    GameState.powerup_state_change_anim.to    = powerup
+    GameState.powerup_state_change_anim.timer = POWERUP_STATE_CHANGE_TIME
+}
+
 init_plumber_controller :: proc(using plumber: ^Plumber) {
   using Plumber_Input_Keys
-  controller[DOWN ] = { sc = .DOWN  }
-  controller[LEFT ] = { sc = .LEFT  }
-  controller[RIGHT] = { sc = .RIGHT }
-  controller[RUN  ] = { sc = .Z     }
-  controller[JUMP ] = { sc = .X     }
+  controller[DOWN     ] = { sc = .DOWN  }
+  controller[LEFT     ] = { sc = .LEFT  }
+  controller[RIGHT    ] = { sc = .RIGHT }
+  controller[RUN      ] = { sc = .Z     }
+  controller[JUMP     ] = { sc = .X     }
 
   controller[POWERUP  ] = { sc = .W     }
   controller[POWERDOWN] = { sc = .Q     }
@@ -129,10 +139,10 @@ update_plumber :: proc(using plumber: ^Plumber) {
   update_input_controller(controller[:])
 
   if controller[POWERDOWN].state == KEYSTATE_PRESSED {
-    powerup = max(powerup - Powerup(1), Powerup.NONE)
+    change_player_powerup_state(plumber, max(powerup - Powerup(1), Powerup.NONE))
   }
   if controller[POWERUP].state == KEYSTATE_PRESSED {
-    powerup = min(powerup + Powerup(1), Powerup.FIRE)
+    change_player_powerup_state(plumber, min(powerup + Powerup(1), Powerup.FIRE))
   }
 
   position_prev = position
@@ -240,7 +250,7 @@ update_plumber :: proc(using plumber: ^Plumber) {
   velocity.y = min(velocity.y, max_fall_speed)
 
   position += velocity
-    
+
   if powerup == .FIRE && .CROUCHING not_in flags && bool(controller[RUN].state == KEYSTATE_PRESSED) {
     slot := get_next_empty_slot(&GameState.active_level.entities)
     if slot != nil {
@@ -394,7 +404,7 @@ update_plumber :: proc(using plumber: ^Plumber) {
       anim_frame = 0
     } else {
       // if animation state is the same, then we want to perform some animation within the state
-      // since we may want to animate through clips defferently depending on the animation state, we switch on the state
+      // since we may want to animate through clips differently depending on the animation state, we switch on the state
       if anim_state == .WALK {
         anim_frame += abs(velocity.x) * 4
         if anim_frame >= cast(f32) len(Plumber_Animation_Clips[powerup][anim_state]) {
@@ -494,7 +504,13 @@ render_plumber :: proc(using plumber: ^Plumber, tile_render_unit, offset: Vector
   render_position := (position + offset + self_offset) * tile_render_unit
   render_size     := scale * size * tile_render_unit
 
-  clip := Plumber_Animation_Clips[powerup][anim_state][cast(int) anim_frame]
+  clip: sdl.Rect
+  int_anim_frame := int(anim_frame)
+  if int(anim_state) >= 0 && int(anim_state) < len(Plumber_Animation_Clips[powerup]) &&
+     int_anim_frame  >= 0 && int_anim_frame  < len(Plumber_Animation_Clips[powerup][anim_state]) {
+      clip = Plumber_Animation_Clips[powerup][anim_state][int_anim_frame]
+  }
+
   rect := sdl.Rect {
     x = cast(i32) render_position.x,
     y = cast(i32) render_position.y,

@@ -82,7 +82,9 @@ update_mushroom :: proc(mushroom: ^Mushroom) -> bool {
     m_rect := get_mushroom_collision_rect(mushroom^)
 
     if aabb_frect(p_rect, m_rect) {
-      p.powerup = max(p.powerup, Powerup.SUPER)
+      if p.powerup < Powerup.SUPER {
+        change_player_powerup_state(p, Powerup.SUPER)
+      }
       return false
     }
   }

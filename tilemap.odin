@@ -525,7 +525,6 @@ create_block_break_particles :: proc(
           },
         },
       }
-      fmt.println("spawned particle:", slot.data)
     }
   }
 }
