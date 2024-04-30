@@ -22,7 +22,7 @@ Particle :: struct {
     frame_count   : int,
     current_frame : int,
     frame_clock   : int,
-    do_loop       : bool,
+    loop          : int,
   },
 }
 
@@ -43,7 +43,8 @@ update_particle :: proc(using particle: ^Particle) -> bool {
       current_frame += 1
       frame_clock = 0
       if current_frame >= frame_count {
-        if !do_loop do return false
+        loop -= 1
+        if loop == -1 do return false
         current_frame  = 0
       }
     }

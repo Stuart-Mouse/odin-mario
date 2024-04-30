@@ -107,7 +107,7 @@ pixel_to_internal_units :: proc(pixel_position: Vec2i, internal_unit: f32, pixel
 }
 
 // returns -1 if index is not in valid range
-get_grid_index_checked :: proc(position, tile_size : Vector2, grid_size: Vec2i, offset := Vector2 {}, margin := Vector2 {}) -> i32 {
+get_grid_index_checked :: proc(position, tile_size : Vector2, grid_size: Vec2i, offset := Vector2 {}, margin := Vector2 {}) -> int {
 	pos := position - offset + (margin / 2)
 	index_2D := Vec2i {
 		i32(pos.x / (tile_size.x + margin.x)),
@@ -117,13 +117,13 @@ get_grid_index_checked :: proc(position, tile_size : Vector2, grid_size: Vec2i, 
 		 index_2D.y < 0 || index_2D.y >= grid_size.y {
 		return -1
 	}
-	return index_2D.y * grid_size.x + index_2D.x
+	return int(index_2D.y * grid_size.x + index_2D.x)
 }
 
-get_grid_tile_rect :: proc(index: i32, tile_size : Vector2, grid_size: Vec2i, offset := Vector2 {}, margin := Vector2 {}) -> sdl.FRect {
+get_grid_tile_rect :: proc(index: int, tile_size : Vector2, grid_size: Vec2i, offset := Vector2 {}, margin := Vector2 {}) -> sdl.FRect {
 	index_2D : Vec2i = {
-		index % grid_size.x,
-		index / grid_size.x,
+		i32(index) % grid_size.x,
+		i32(index) / grid_size.x,
 	}
 	rect : sdl.FRect = {
 		x = (tile_size.x + margin.x) * (f32(index_2D.x) + offset.x) - (margin.x / 2),
@@ -132,7 +132,7 @@ get_grid_tile_rect :: proc(index: i32, tile_size : Vector2, grid_size: Vec2i, of
 		h = (tile_size.y + margin.y),
 	}
 	if index_2D.x < 0 || index_2D.x >= grid_size.x ||
-		 index_2D.y < 0 || index_2D.y >= grid_size.y {
+	   index_2D.y < 0 || index_2D.y >= grid_size.y {
 		return {}
 	}
 	return rect

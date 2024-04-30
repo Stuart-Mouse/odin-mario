@@ -65,12 +65,6 @@ calc_plumber_physics :: proc() {
 
 show_plumber_collision_points : bool
 
-Powerup :: enum {
-  NONE,
-  SUPER,
-  FIRE,
-}
-
 Plumber_Input_Keys :: enum {
   DOWN, 
   LEFT,
@@ -84,6 +78,8 @@ Plumber_Input_Keys :: enum {
 
 POWERUP_STATE_CHANGE_TIME :: 50
 
+POWERUP_LOST_I_FRAMES :: 60
+
 Plumber :: struct {
   position_prev : Vector2,
   position      : Vector2,
@@ -93,8 +89,10 @@ Plumber :: struct {
   powerup       : Powerup,
   coins         : int,
   score         : int,
-  seq_bounces   : int,
+  bounce_combo  : int,
   lives         : int,
+  
+  i_frames      : int,
 
   anim_state    : Plumber_Animation_States,
   anim_frame    : f32,
@@ -112,8 +110,11 @@ Plumber_Flag :: enum {
   CROUCHING,
 }
 
-change_player_powerup_state :: proc(plumber: ^Plumber, powerup: Powerup) {
-    if powerup < Powerup(0) do return
+change_plumber_powerup_state :: proc(plumber: ^Plumber, powerup: Powerup) {
+    if powerup < Powerup(0) || plumber.powerup == powerup do return
+    if plumber.powerup  < .SUPER && powerup >= .SUPER do plumber.position.y -= 0.5
+    if plumber.powerup >= .SUPER && powerup  < .SUPER do plumber.position.y += 0.5
+    
     GameState.powerup_state_change_anim.from  = plumber.powerup
     plumber.powerup = powerup
     GameState.powerup_state_change_anim.to    = powerup
@@ -139,13 +140,15 @@ update_plumber :: proc(using plumber: ^Plumber) {
   update_input_controller(controller[:])
 
   if controller[POWERDOWN].state == KEYSTATE_PRESSED {
-    change_player_powerup_state(plumber, max(powerup - Powerup(1), Powerup.NONE))
+    change_plumber_powerup_state(plumber, max(powerup - Powerup(1), Powerup.NONE))
   }
   if controller[POWERUP].state == KEYSTATE_PRESSED {
-    change_player_powerup_state(plumber, min(powerup + Powerup(1), Powerup.FIRE))
+    change_plumber_powerup_state(plumber, min(powerup + Powerup(1), Powerup.FIRE))
   }
 
   position_prev = position
+
+  i_frames = max(i_frames - 1, 0)
 
   // do player physics
   can_jump := false
@@ -286,78 +289,61 @@ update_plumber :: proc(using plumber: ^Plumber) {
     }
   }
 
-  // do tilemap collision
-  {
-    using collision_results
-    collision_results = do_tilemap_collision(&GameState.active_level.tilemap, position, size, offset)
-    position += position_adjust
-    
-    // collect coins
-    for &tile in indexed_tiles {
-        if tile == nil do continue
-        if get_tile_collision(tile^).type == .COIN {
-            coins += 1
-            if coins == 100 {
-                lives += 1
-                coins = 0
+    // do tilemap collision
+    {
+        tilemap := &GameState.active_level.tilemap
+        using collision_results
+        collision_results = do_tilemap_collision(tilemap, position, size, offset, velocity)
+        position += position_adjust
+        
+        // collect coins
+        for &tile_index in indexed_tiles {
+            tile := get_tile(tilemap, tile_index)
+            if tile == nil do continue
+            if get_tile_collision(tile^).type == .COIN {
+                coins += 1
+                if coins == 100 {
+                    lives += 1
+                    coins = 0
+                }
+                tile^ = {}
             }
-            tile^ = {}
+        }
+        
+        if velocity.y < 0 {
+            for dir in ([]Direction {.U, .UL, .UR}) {
+                if dir in push_out && resolutions[dir] == .U {
+                    bump_tile(tilemap, indexed_tiles[dir], powerup >= .SUPER ? .BIG_PLUMBER : .SMALL_PLUMBER, .U)
+                }
+            }
+        }
+        
+        if .U in push_out {
+            if velocity.y < 0 do velocity.y = hit_ceiling
+        }
+        if .D in push_out {
+            if velocity.y > 0 do velocity.y = 0
+            flags |= { .ON_GROUND }
+        }
+        if .L in push_out {
+            if velocity.x < 0 do velocity.x = 0
+        }
+        if .R in push_out {
+            if velocity.x > 0 do velocity.x = 0
+        }
+        
+        for dir in ([]Direction {.D, .DL, .DR}) {
+            tile := get_tile(tilemap, indexed_tiles[dir])
+            if tile != nil && tile_is_bumping(tile^) {
+                velocity.y -= 0.15
+                break
+            }
         }
     }
     
-    // bump/break tiles the player hits with their head
-    for dir in ([]Direction{ .U, .UL, .UR }) {
-      tile := indexed_tiles[dir]
-      if tile == nil            do continue
-      if resolutions[dir] != .U do continue
-      if velocity.y > 0         do continue
-
-      ti := get_tile_info(tile^)
-      if ti == nil do continue
-      if .BUMPABLE in ti.collision.flags {
-        if tile.bump_clock == 0 {
-          tile.bump_clock = TILE_BUMP_TIME
-
-          if .BREAKABLE in ti.collision.flags {
-            if powerup > .NONE {
-              tile.flags |= { .BROKEN }
-              index := Vector2 { f32(indices[dir].x), f32(indices[dir].y) }
-              create_block_break_particles(
-                tile      = tile^,
-                position  = index,
-                pieces    = { 2, 2 },
-                vel_x     = { -0.07,  0.07 },
-                vel_y     = { -0.35, -0.30 },
-                vel_ax    = { -7   ,  7    },
-                vel_var   = {  0.05,  0.05,  3 },
-                vel_extra = velocity * { 0.5, 0 },
-              )
-            }
-          }
-          if .CONTAINER in ti.collision.flags  {
-            if tile.bump_clock == 0 do tile.bump_clock = TILE_BUMP_TIME
-          }
-        }
-      }
+    if .ON_GROUND in flags {
+        bounce_combo = 0
     }
-    if .U in push_out {
-      if velocity.y < 0 do velocity.y = hit_ceiling
-    }
-    if .D in push_out {
-      if velocity.y > 0 do velocity.y = 0
-      flags |= { .ON_GROUND }
-    }
-    if .L in push_out {
-      if velocity.x < 0 do velocity.x = 0
-    }
-    if .R in push_out {
-      if velocity.x > 0 do velocity.x = 0
-    }
-  }
-  
-  if .ON_GROUND in flags {
-    seq_bounces = 0
-  }
 
 
   // update camera
@@ -518,8 +504,14 @@ render_plumber :: proc(using plumber: ^Plumber, tile_render_unit, offset: Vector
     h = cast(i32) render_size.y,
   }
   
+  render_blinking := i_frames != 0 && ((i_frames * 8 / POWERUP_LOST_I_FRAMES) & 1) == 1
+  
+  if render_blinking do sdl.SetTextureAlphaMod(plumber_texture.sdl_texture, 0x22)
+  
   flip : sdl.RendererFlip = .FACING_LEFT in flags ? .HORIZONTAL : .NONE
   sdl.RenderCopyEx(renderer, plumber_texture.sdl_texture, &clip, &rect, 0, nil, flip)
+
+  if render_blinking do sdl.SetTextureAlphaMod(plumber_texture.sdl_texture, 0xFF)
 
   // debug render collision points
   if show_plumber_collision_points {
@@ -571,39 +563,20 @@ get_plumber_collision_size_and_offset :: proc(using plumber: Plumber) -> (size, 
 }
 
 add_bounce_score :: proc(using plumber: ^Plumber, spawn_position: Vector2) {
-    bounce_scores := []int {
-        100, 200, 400, 500, 800, 1000, 2000, 4000, 5000, 8000
-    }
-    
-    if seq_bounces < 0 do seq_bounces = 0
-    if seq_bounces >= len(bounce_scores) {
+    if bounce_combo < 0 do bounce_combo = 0
+    if bounce_combo >= len(point_scores) {
         plumber.lives += 1
     } else {
-        plumber.score += bounce_scores[plumber.seq_bounces]
+        plumber.score += point_scores[plumber.bounce_combo]
     }
     
-    spawn_score_particle(seq_bounces, spawn_position)
+    spawn_score_particle(bounce_combo, spawn_position)
     
-    seq_bounces = min(seq_bounces + 1, len(bounce_scores))
+    bounce_combo = min(bounce_combo + 1, len(point_scores))
 }
 
 spawn_score_particle :: proc(score_index: int, spawn_position: Vector2) {    
-    score_particles_clips := []sdl.Rect {
-        {  0, 24, 16,  8 }, // 100
-        {  0, 32, 16,  8 }, // 200
-        {  0, 40, 16,  8 }, // 400
-        {  0, 48, 16,  8 }, // 500
-        {  0, 56, 16,  8 }, // 800
-        
-        { 16, 24, 16,  8 }, // 1000
-        { 16, 32, 16,  8 }, // 2000
-        { 16, 40, 16,  8 }, // 4000
-        { 16, 48, 16,  8 }, // 5000
-        { 16, 56, 16,  8 }, // 8000
-        { 16, 64, 16,  8 }, // 1-UP
-    }
-    
-    if score_index < 0 || score_index >= len(score_particles_clips) do return
+    if score_index < 0 || score_index >= len(score_clips) do return
     
     using GameState.active_level
     slot := get_next_slot(&particles[0])
@@ -617,7 +590,7 @@ spawn_score_particle :: proc(score_index: int, spawn_position: Vector2) {
             frame_count = 2,
             frames = {
                 {
-                    clip = score_particles_clips[score_index],
+                    clip = score_clips[score_index],
                     duration = 30,
                 },
                 {}, {}, {}, {}, {}, {}, {},
@@ -625,3 +598,37 @@ spawn_score_particle :: proc(score_index: int, spawn_position: Vector2) {
         },
     }
 }
+
+point_scores := []int {
+    100, 200, 400, 500, 800, 1000, 2000, 4000, 5000, 8000
+}
+
+score_clips := []sdl.Rect {
+    {  0, 24, 16,  8 }, // 100
+    {  0, 32, 16,  8 }, // 200
+    {  0, 40, 16,  8 }, // 400
+    {  0, 48, 16,  8 }, // 500
+    {  0, 56, 16,  8 }, // 800
+    
+    { 16, 24, 16,  8 }, // 1000
+    { 16, 32, 16,  8 }, // 2000
+    { 16, 40, 16,  8 }, // 4000
+    { 16, 48, 16,  8 }, // 5000
+    { 16, 56, 16,  8 }, // 8000
+    { 16, 64, 16,  8 }, // 1-UP
+}
+
+plumber_take_damage :: proc(using plumber: ^Plumber) {
+    if i_frames > 0 do return 
+    change_plumber_powerup_state(plumber, powerup - Powerup(1))
+    plumber.i_frames = POWERUP_LOST_I_FRAMES
+}
+
+plumber_add_coin :: proc(using plumber: ^Plumber) {
+    coins += 1
+    if coins >= 100 {
+        lives += 1
+        coins = 0
+    }
+}
+

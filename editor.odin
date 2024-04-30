@@ -27,14 +27,14 @@ editor_controller : [EditorInputKeys.COUNT] InputKey = {
 }
 
 EditorState : struct {
-    mouse_tile_index    : i32,
-	selected_type	      : typeid,
+    mouse_tile_index    : int,
+	selected_type	    : typeid,
 	selected_entity	    : Entity,
-    selected_tile_id    : u32,
+    selected_tile       : Tile,
     show_tile_picker    : bool,
     camera              : Camera,
     mouse_tile_position : Vector2,
-  
+    
     editting_level : Level_Data,
 }
 
@@ -51,304 +51,298 @@ EDITOR_TILE_UNIT : f32 = 32.0
 //   TODO: implement a stack allocator for undo / redo?
 // */
 update_editor :: proc() {
-  using EditorState
-  using EditorInputKeys
-  using GameState
+    using EditorState
+    using EditorInputKeys
+    using GameState
 
-  update_input_controller(editor_controller[:])
+    update_input_controller(editor_controller[:])
 
-  CAMERA_MOVE_SPEED :: 0.2
+    CAMERA_MOVE_SPEED :: 0.2
 
-  if bool(editor_controller[UP].state & KEYSTATE_PRESSED) {
-    camera.y -= CAMERA_MOVE_SPEED
-  }
-  if bool(editor_controller[DOWN].state & KEYSTATE_PRESSED) {
-    camera.y += CAMERA_MOVE_SPEED
-  }
-  if bool(editor_controller[LEFT].state & KEYSTATE_PRESSED) {
-    camera.x -= CAMERA_MOVE_SPEED
-  }
-  if bool(editor_controller[RIGHT].state & KEYSTATE_PRESSED) {
-    camera.x += CAMERA_MOVE_SPEED
-  }
+    if bool(editor_controller[UP].state & KEYSTATE_PRESSED) {
+        camera.y -= CAMERA_MOVE_SPEED
+    }
+    if bool(editor_controller[DOWN].state & KEYSTATE_PRESSED) {
+        camera.y += CAMERA_MOVE_SPEED
+    }
+    if bool(editor_controller[LEFT].state & KEYSTATE_PRESSED) {
+        camera.x -= CAMERA_MOVE_SPEED
+    }
+    if bool(editor_controller[RIGHT].state & KEYSTATE_PRESSED) {
+        camera.x += CAMERA_MOVE_SPEED
+    }
 
-  if bool(editor_controller[CAMERA_DRAG].state & KEYSTATE_DOWN) {
-    mouse_tile_velocity := pixel_to_internal_units(
-      pixel_position  = Mouse.velocity, 
-      internal_unit   = EDITOR_TILE_UNIT, 
+    if bool(editor_controller[CAMERA_DRAG].state & KEYSTATE_DOWN) {
+        mouse_tile_velocity := pixel_to_internal_units(
+            pixel_position  = Mouse.velocity, 
+            internal_unit   = EDITOR_TILE_UNIT, 
+        )
+        camera.position -= mouse_tile_velocity
+    }
+
+    if Mouse.wheel.x != 0 {
+        EDITOR_TILE_UNIT = clamp(EDITOR_TILE_UNIT + f32(Mouse.wheel.x), 16, 32)
+    }
+
+    if Mouse.wheel.y != 0 {
+        selected_tile = Tile {
+            id = cast(u32)clamp(i32(selected_tile.id) + Mouse.wheel.y, 0, i32(len(tile_info_lookup)-1))
+        }
+    }
+
+    screen_render_width  := EDITOR_TILE_UNIT * SCREEN_TILE_WIDTH
+    screen_render_height := EDITOR_TILE_UNIT * SCREEN_TILE_HEIGHT
+
+    tilemap := &editting_level.tilemap
+
+    // get mouse position in the game world
+    mouse_tile_position = pixel_to_internal_units(
+        pixel_position  = Mouse.position, 
+        internal_unit   = EDITOR_TILE_UNIT, 
+        internal_offset = camera.position, 
     )
-    camera.position -= mouse_tile_velocity
-  }
+    // get the index of the hovered tile in the tilemap
+    mouse_tile_index = get_grid_index_checked(
+        position  = mouse_tile_position, 
+        tile_size = { 1, 1 }, 
+        grid_size = tilemap.size,
+    )
 
-  if Mouse.wheel.x != 0 {
-    EDITOR_TILE_UNIT = clamp(EDITOR_TILE_UNIT + f32(Mouse.wheel.x), 16, 32)
-  }
-
-  if Mouse.wheel.y != 0 {
-    selected_tile_id = cast(u32)clamp(i32(selected_tile_id) + Mouse.wheel.y, 0, i32(len(tile_info_lookup)-1))
-  }
-
-  screen_render_width  := EDITOR_TILE_UNIT * SCREEN_TILE_WIDTH
-  screen_render_height := EDITOR_TILE_UNIT * SCREEN_TILE_HEIGHT
-
-  tilemap := &editting_level.tilemap
-
-  // get mouse position in the game world
-  mouse_tile_position = pixel_to_internal_units(
-    pixel_position  = Mouse.position, 
-    internal_unit   = EDITOR_TILE_UNIT, 
-    internal_offset = camera.position, 
-  )
-  // get the index of the hovered tile in the tilemap
-  mouse_tile_index = get_grid_index_checked(
-    position  = mouse_tile_position, 
-    tile_size = { 1, 1 }, 
-    grid_size = tilemap.size,
-  )
-
-  if Mouse.middle == KEYSTATE_PRESSED {
-    tile := get_tile(tilemap, mouse_tile_index)
-    if tile != nil do selected_tile_id = tile.id
-  }
-  if Mouse.left & KEYSTATE_PRESSED != 0 {
-    if selected_type == Tile {
-      tile := get_tile(tilemap, mouse_tile_index)
-      if tile != nil {
-        info := get_tile_info(tile^)
-        tile^ = { id = selected_tile_id }
-      }
+    if Mouse.middle == KEYSTATE_PRESSED {
+        tile := get_tile(tilemap, mouse_tile_index)
+        if tile != nil do selected_tile = tile^
     }
-    else if selected_type == Entity && Mouse.left == KEYSTATE_PRESSED {
-      slot := get_next_empty_slot(&editting_level.entities)
-      if slot != nil {
-        slot.occupied = true
-        // init_entity(&slot.data, selected_entity)
-        slot.data = selected_entity
-        slot.data.base.position = {
-          snap_to_nearest_unit(mouse_tile_position.x, 0.5),
-          snap_to_nearest_unit(mouse_tile_position.y, 0.5),
+    if Mouse.left & KEYSTATE_PRESSED != 0 {
+        if selected_type == Tile {
+            tile := get_tile(tilemap, mouse_tile_index)
+            if tile != nil {
+                info := get_tile_info(tile^)
+                tile^ = selected_tile
+            }
         }
-      }
-    }
-  }
-
-  if bool(editor_controller[SET_PLAYER_START].state & KEYSTATE_PRESSED) {
-    editting_level.plumber.position = {
-      snap_to_nearest_unit(mouse_tile_position.x, 0.5),
-      snap_to_nearest_unit(mouse_tile_position.y, 0.5),
-    }
-  }
-
-  @static entity_details_popup_target : ^Slot(Entity)
-  @static tile_details_popup_target : ^Tile
-
-  if Mouse.right == KEYSTATE_PRESSED {
-    clicked_entity := false
-    for &slot in editting_level.entities.slots {
-	    e     := &slot.data
-	    frect := get_entity_collision_rect(e^)
-	    if is_point_within_frect(mouse_tile_position, frect) {
-            clicked_entity = true
-            entity_details_popup_target = &slot
-            imgui.OpenPopup("Entity Details Popup", {})
-	    }
-    }
-    if !clicked_entity {
-      tile := get_tile(tilemap, mouse_tile_index)
-      if tile != nil {
-        info := get_tile_info(tile^)
-        if .CONTAINER in info.collision.flags {
-          tile_details_popup_target = tile
-          imgui.OpenPopup("Tile Details Popup", {})
+        else if selected_type == Entity && Mouse.left == KEYSTATE_PRESSED {
+            slot := get_next_empty_slot(&editting_level.entities)
+            if slot != nil {
+                slot.occupied = true
+                // init_entity(&slot.data, selected_entity)
+                slot.data = selected_entity
+                slot.data.base.position = {
+                    snap_to_nearest_unit(mouse_tile_position.x, 0.5),
+                    snap_to_nearest_unit(mouse_tile_position.y, 0.5),
+                }
+            }
         }
-      }
     }
-  }
 
-  if imgui.BeginPopup("Tile Details Popup", {}) {
-    if tile_details_popup_target == nil {
-      imgui.CloseCurrentPopup()
-    } else {
-      img_size, img_uv0, img_uv1 : imgui.Vec2
-      img_size = { 16, 16 }
-      img_uv0  = {  0,  0 }
-      img_uv1  = { 
-        16 / f32(entities_texture.width ), 
-        16 / f32(entities_texture.height),
-      }
-      if imgui.ImageButtonEx("Goomba", entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
-        tile_details_popup_target.contains = .GOOMBA
-        imgui.CloseCurrentPopup()
-      }
-      img_size = { 16, 16 }
-      img_uv0  = { 
-        32 / f32(entities_texture.width ), 
-         0 / f32(entities_texture.height),
-      }
-      img_uv1  = { 
-        48 / f32(entities_texture.width ), 
-        16 / f32(entities_texture.height),
-      }
-      imgui.SameLine()
-      if imgui.ImageButtonEx("Mushroom", entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
-        tile_details_popup_target.contains = .MUSHROOM
-        imgui.CloseCurrentPopup()
-      }
-      img_uv0  = { 
-        32 / f32(entities_texture.width ), 
-        16 / f32(entities_texture.height),
-      }
-      img_uv1  = { 
-        48 / f32(entities_texture.width ), 
-        32 / f32(entities_texture.height),
-      }
-      imgui.SameLine()
-      if imgui.ImageButtonEx("Shell", entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
-        tile_details_popup_target.contains = .SHELL
-        imgui.CloseCurrentPopup()
-      }
-      img_uv0  = { 
-         0 / f32(entities_texture.width ), 
-        16 / f32(entities_texture.height),
-      }
-      img_uv1  = { 
-        16 / f32(entities_texture.width ), 
-        32 / f32(entities_texture.height),
-      }
-      imgui.SameLine()
-      if imgui.ImageButtonEx("Beetle", entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
-        tile_details_popup_target.contains = .BEETLE
-        imgui.CloseCurrentPopup()
-      }
-      img_uv0  = { 
-        f32(koopa_animation_clips[0].x) / f32(entities_texture.width ), 
-        f32(koopa_animation_clips[0].y) / f32(entities_texture.height),
-      }
-      img_uv1  = { 
-        f32(koopa_animation_clips[0].x + 16) / f32(entities_texture.width ), 
-        f32(koopa_animation_clips[0].y + 16) / f32(entities_texture.height),
-      }
-      imgui.SameLine()
-      if imgui.ImageButtonEx("Koopa", entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
-        tile_details_popup_target.contains = .KOOPA
-        imgui.CloseCurrentPopup()
-      }
+    if bool(editor_controller[SET_PLAYER_START].state & KEYSTATE_PRESSED) {
+        editting_level.plumber.position = {
+            snap_to_nearest_unit(mouse_tile_position.x, 0.5),
+            snap_to_nearest_unit(mouse_tile_position.y, 0.5),
+        }
     }
-    imgui.EndPopup()
-  }
 
-  if imgui.BeginPopup("Entity Details Popup", {}) {
-    if entity_details_popup_target == nil {
-      imgui.CloseCurrentPopup()
-    } else {
-      // imgui.TreeNodeAny("Entity", entity_details_popup_target.data)
-      if imgui.Button("Delete") {
-        entity_details_popup_target^ = {}
-        entity_details_popup_target = nil
-      }
+    @static entity_details_popup_target : ^Slot(Entity)
+    @static tile_details_popup_target : ^Tile
+
+    if Mouse.right == KEYSTATE_PRESSED {
+        clicked_entity := false
+        for &slot in editting_level.entities.slots {
+  	        e     := &slot.data
+  	        frect := get_entity_collision_rect(e^)
+  	        if is_point_within_frect(mouse_tile_position, frect) {
+                clicked_entity = true
+                entity_details_popup_target = &slot
+                imgui.OpenPopup("Entity Details Popup", {})
+  	        }
+        }
+        if !clicked_entity {
+            tile := get_tile(tilemap, mouse_tile_index)
+            if tile != nil {
+                info := get_tile_info(tile^)
+                if .CONTAINER in info.collision.flags {
+                    tile_details_popup_target = tile
+                    imgui.OpenPopup("Tile Details Popup", {})
+                }
+            }
+        }
     }
-    imgui.EndPopup()
-  }
 
-  if editor_controller[TOGGLE_TILE_PICKER].state == KEYSTATE_PRESSED {
-    show_tile_picker = !show_tile_picker
-  }
+    if imgui.BeginPopup("Tile Details Popup", {}) {
+        if tile_details_popup_target == nil {
+            imgui.CloseCurrentPopup()
+        } else {
+            imgui.ComboEnum("contains", &tile_details_popup_target.contains)
+            if tile_details_popup_target.contains != nil {
+                contains_count := cast(i32) tile_details_popup_target.contains_count
+                imgui.SliderInt("contains count", &contains_count, 1, 5)
+                tile_details_popup_target.contains_count = cast(u8) contains_count
+            }
+            imgui.TreeNodeAny("flags", tile_details_popup_target.flags)
+        }
+        imgui.EndPopup()
+    }
 
-  if show_tile_picker {
-    flags : imgui.WindowFlags = { .NoNavInputs }
-    img_size, img_uv0, img_uv1 : imgui.Vec2
+    if imgui.BeginPopup("Entity Details Popup", {}) {
+        if entity_details_popup_target == nil {
+          imgui.CloseCurrentPopup()
+        } else {
+            // imgui.TreeNodeAny("Entity", entity_details_popup_target.data)
+            if imgui.Button("Delete") {
+                entity_details_popup_target^ = {}
+                entity_details_popup_target = nil
+            }
+        }
+        imgui.EndPopup()
+    }
 
-    if imgui.Begin("Tile Picker", &show_tile_picker, flags) {
-      imgui.SeparatorText("Tiles")
-      for &tile_info, tile_id in tile_info_lookup {
-        tri := get_tile_render_info({ id = u32(tile_id) })
-        if tile_id % 8 != 0 do imgui.SameLine()
+    if editor_controller[TOGGLE_TILE_PICKER].state == KEYSTATE_PRESSED {
+        show_tile_picker = !show_tile_picker
+    }
+
+    if show_tile_picker {
+        flags : imgui.WindowFlags = { .NoNavInputs }
+        img_size, img_uv0, img_uv1 : imgui.Vec2
+  
+        if imgui.Begin("Tile Picker", &show_tile_picker, flags) {
+            imgui.SeparatorText("Tiles")
+            for &tile_info, tile_id in tile_info_lookup {
+                tri := get_tile_render_info({ id = u32(tile_id) })
+                if tile_id % 8 != 0 do imgui.SameLine()
+                img_size = { 16, 16 }
+                img_uv0  = { 
+                    f32(tri.clip.x) / f32(tiles_texture.width ), 
+                    f32(tri.clip.y) / f32(tiles_texture.height),
+                }
+                img_uv1  = img_uv0 + { 
+                    TILE_TEXTURE_SIZE / f32(tiles_texture.width ), 
+                    TILE_TEXTURE_SIZE / f32(tiles_texture.height),
+                }
+      
+                if imgui.ImageButtonEx(cstring(&tile_info.name[0]), tiles_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
+                    selected_type = Tile
+                    selected_tile = Tile { id = u32(tile_id) }
+                }
+                imgui.SetItemTooltip(cstring(&tile_info.name[0]))
+            }
+        }
+
+	    imgui.SeparatorText("Entities")
+        img_uv0  = {  0,  0 }
+        img_uv1  = { 
+            16 / f32(entities_texture.width ), 
+            16 / f32(entities_texture.height),
+        }
+        if imgui.ImageButtonEx("Goomba", entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
+            selected_type   = Entity
+            init_entity(&selected_entity, .GOOMBA)
+        }
         img_size = { 16, 16 }
         img_uv0  = { 
-          f32(tri.clip.x) / f32(tiles_texture.width ), 
-          f32(tri.clip.y) / f32(tiles_texture.height),
+            32 / f32(entities_texture.width ), 
+             0 / f32(entities_texture.height),
         }
-        img_uv1  = img_uv0 + { 
-          TILE_TEXTURE_SIZE / f32(tiles_texture.width ), 
-          TILE_TEXTURE_SIZE / f32(tiles_texture.height),
+        img_uv1  = { 
+            48 / f32(entities_texture.width ), 
+            16 / f32(entities_texture.height),
         }
-
-        if imgui.ImageButtonEx(cstring(&tile_info.name[0]), tiles_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
-          selected_type    = Tile
-          selected_tile_id = u32(tile_id)
+        imgui.SameLine()
+        if imgui.ImageButtonEx("Mushroom", entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
+            selected_type = Entity
+            init_entity(&selected_entity, .MUSHROOM)
         }
-        imgui.SetItemTooltip(cstring(&tile_info.name[0]))
-      }
+        img_uv0  = { 
+            64 / f32(entities_texture.width ), 
+            40 / f32(entities_texture.height),
+        }
+        img_uv1  = { 
+            80 / f32(entities_texture.width ), 
+            56 / f32(entities_texture.height),
+        }
+        imgui.SameLine()
+        if imgui.ImageButtonEx("Shell", entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
+            selected_type = Entity
+            init_entity(&selected_entity, .SHELL)
+        }
+        img_uv0  = { 
+             0 / f32(entities_texture.width ), 
+            16 / f32(entities_texture.height),
+        }
+        img_uv1  = { 
+            16 / f32(entities_texture.width ), 
+            32 / f32(entities_texture.height),
+        }
+        imgui.SameLine()
+        if imgui.ImageButtonEx("Beetle", entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
+            selected_type = Entity
+            init_entity(&selected_entity, .BEETLE)
+        }
+        img_uv0  = { 
+            f32(koopa_animation_clips[0].x) / f32(entities_texture.width ), 
+            f32(koopa_animation_clips[0].y) / f32(entities_texture.height),
+        }
+        img_uv1  = { 
+            f32(koopa_animation_clips[0].x + 16) / f32(entities_texture.width ), 
+            f32(koopa_animation_clips[0].y + 16) / f32(entities_texture.height),
+        }
+        imgui.SameLine()
+        if imgui.ImageButtonEx("Koopa", entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
+            selected_type = Entity
+            init_entity(&selected_entity, .KOOPA)
+        }
+        img_uv0  = { 
+            f32(koopa_animation_clips[0].x     ) / f32(entities_texture.width ), 
+            f32(koopa_animation_clips[0].y + 24) / f32(entities_texture.height),
+        }
+        img_uv1  = { 
+            f32(koopa_animation_clips[0].x + 16) / f32(entities_texture.width ), 
+            f32(koopa_animation_clips[0].y + 40) / f32(entities_texture.height),
+        }
+        imgui.SameLine()
+        if imgui.ImageButtonEx("Red Koopa", entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
+            selected_type = Entity
+            init_entity(&selected_entity, .KOOPA, {.DONT_WALK_OFF_LEDGES})
+        }
+        img_uv0  = { 
+            f32(koopa_animation_clips[0].x + 32) / f32(entities_texture.width ), 
+            f32(koopa_animation_clips[0].y     ) / f32(entities_texture.height),
+        }
+        img_uv1  = { 
+            f32(koopa_animation_clips[0].x + 48) / f32(entities_texture.width ), 
+            f32(koopa_animation_clips[0].y + 16) / f32(entities_texture.height),
+        }
+        imgui.SameLine()
+        if imgui.ImageButtonEx("Winged Koopa", entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
+            selected_type = Entity
+            init_entity(&selected_entity, .KOOPA, {.WINGED})
+        }
+        img_uv0  = { 
+            f32(koopa_animation_clips[0].x + 32) / f32(entities_texture.width ), 
+            f32(koopa_animation_clips[0].y + 24) / f32(entities_texture.height),
+        }
+        img_uv1  = { 
+            f32(koopa_animation_clips[0].x + 48) / f32(entities_texture.width ), 
+            f32(koopa_animation_clips[0].y + 40) / f32(entities_texture.height),
+        }
+        imgui.SameLine()
+        if imgui.ImageButtonEx("Winged Red Koopa", entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
+            selected_type = Entity
+            init_entity(&selected_entity, .KOOPA, {.DONT_WALK_OFF_LEDGES, .WINGED})
+        }
+        img_uv0  = { 
+            48 / f32(entities_texture.width ), 
+            16 / f32(entities_texture.height),
+        }
+        img_uv1  = { 
+            64 / f32(entities_texture.width ), 
+            32 / f32(entities_texture.height),
+        }
+        imgui.SameLine()
+        if imgui.ImageButtonEx("Spiny", entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
+            selected_type = Entity
+            init_entity(&selected_entity, .SPINY)
+        }
+        imgui.End()
     }
-
-	imgui.SeparatorText("Entities")
-    img_uv0  = {  0,  0 }
-    img_uv1  = { 
-      16 / f32(entities_texture.width ), 
-      16 / f32(entities_texture.height),
-    }
-    if imgui.ImageButtonEx("Goomba", entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
-      selected_type   = Entity
-      init_entity(&selected_entity, .GOOMBA)
-    }
-    img_size = { 16, 16 }
-    img_uv0  = { 
-      32 / f32(entities_texture.width ), 
-       0 / f32(entities_texture.height),
-    }
-    img_uv1  = { 
-      48 / f32(entities_texture.width ), 
-      16 / f32(entities_texture.height),
-    }
-    imgui.SameLine()
-    if imgui.ImageButtonEx("Mushroom", entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
-      selected_type   = Entity
-      init_entity(&selected_entity, .MUSHROOM)
-    }
-    img_uv0  = { 
-      32 / f32(entities_texture.width ), 
-      16 / f32(entities_texture.height),
-    }
-    img_uv1  = { 
-      48 / f32(entities_texture.width ), 
-      32 / f32(entities_texture.height),
-    }
-    imgui.SameLine()
-    if imgui.ImageButtonEx("Shell", entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
-      selected_type   = Entity
-      init_entity(&selected_entity, .SHELL)
-    }
-    img_uv0  = { 
-       0 / f32(entities_texture.width ), 
-      16 / f32(entities_texture.height),
-    }
-    img_uv1  = { 
-      16 / f32(entities_texture.width ), 
-      32 / f32(entities_texture.height),
-    }
-    imgui.SameLine()
-    if imgui.ImageButtonEx("Beetle", entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
-      selected_type   = Entity
-      init_entity(&selected_entity, .BEETLE)
-    }
-    img_uv0  = { 
-      f32(koopa_animation_clips[0].x) / f32(entities_texture.width ), 
-      f32(koopa_animation_clips[0].y) / f32(entities_texture.height),
-    }
-    img_uv1  = { 
-      f32(koopa_animation_clips[0].x + 16) / f32(entities_texture.width ), 
-      f32(koopa_animation_clips[0].y + 16) / f32(entities_texture.height),
-    }
-    imgui.SameLine()
-    if imgui.ImageButtonEx("Koopa", entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
-      selected_type   = Entity
-      init_entity(&selected_entity, .KOOPA)
-    }
-
-
-    imgui.End()
-  }
-
 }
 
 render_editor :: proc() {
@@ -385,9 +379,8 @@ render_editor :: proc() {
   )
   
   if selected_type == Tile {
-    tile := Tile{ id = selected_tile_id }
-    if tile.id != 0 {
-      tri := get_tile_render_info(tile)
+    if selected_tile.id != 0 {
+      tri := get_tile_render_info(selected_tile)
       sdl.SetTextureColorMod(tri.texture, tri.color_mod.r, tri.color_mod.g, tri.color_mod.b)
       sdl.SetTextureAlphaMod(tri.texture, 0x88)
       sdl.RenderCopyF(renderer, tri.texture, &tri.clip, &mouse_tile_rect)

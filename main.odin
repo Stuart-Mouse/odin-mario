@@ -227,20 +227,50 @@ update_game :: proc() {
 }
 
 render_game :: proc() {
-  using GameState.active_level
-  for &slot in particles[1].slots {
-    if slot.occupied do render_particle(&slot.data, TILE_RENDER_SIZE, -camera.position)
-  }
-  render_tilemap(&tilemap, TILE_RENDER_SIZE, -camera.position)
-  render_small_text("MARIO", {32, 16}, 0, 0, 2)
-  render_small_text(fmt.tprintf("%6v", plumber.score), {32, 32}, 0, 0, 2)
-  render_plumber(&plumber, TILE_RENDER_SIZE, -camera.position)
-  for &slot in entities.slots {
-    if slot.occupied do render_entity(slot.data, TILE_RENDER_SIZE, -camera.position)
-  }
-  for &slot in particles[0].slots {
-    if slot.occupied do render_particle(&slot.data, TILE_RENDER_SIZE, -camera.position)
-  }
+    using GameState.active_level
+    
+    for &slot in particles[1].slots {
+        if slot.occupied do render_particle(&slot.data, TILE_RENDER_SIZE, -camera.position)
+    }
+    
+    render_tilemap(&tilemap, TILE_RENDER_SIZE, -camera.position)
+    
+    render_small_text("MARIO", {32, 16}, 0, 0, 2)
+    render_small_text(fmt.tprintf("%6v", plumber.score), {32, 32}, 0, 0, 2)
+    
+    {
+        @static frame_counter := 0
+        @static frame_index   := 0
+        
+        hud_coin_frames := []struct { clip: sdl.Rect, duration: int } {
+            { { 32, 24, 8, 8 }, 20 },
+            { { 32, 32, 8, 8 }, 10 },
+            { { 32, 40, 8, 8 }, 10 },
+            { { 32, 32, 8, 8 }, 10 },
+        }
+        
+        frame_counter += 1
+        if frame_counter >= hud_coin_frames[frame_index].duration {
+            frame_index += 1
+            frame_counter = 0
+            if frame_index >= len(hud_coin_frames) {
+                frame_index = 0
+            }
+        }
+        
+        sdl.RenderCopy(renderer, decor_texture.sdl_texture, &hud_coin_frames[frame_index].clip, &sdl.Rect {160, 32, 16, 16})
+        render_small_text(fmt.tprintf("x%2v", plumber.coins), {176, 32}, 0, 0, 2)
+    }
+    
+    render_plumber(&plumber, TILE_RENDER_SIZE, -camera.position)
+    
+    for &slot in entities.slots {
+        if slot.occupied do render_entity(slot.data, TILE_RENDER_SIZE, -camera.position)
+    }
+    
+    for &slot in particles[0].slots {
+        if slot.occupied do render_particle(&slot.data, TILE_RENDER_SIZE, -camera.position)
+    }
 }
 
 close_application :: proc() {

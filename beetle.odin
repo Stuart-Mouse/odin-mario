@@ -27,15 +27,20 @@ update_beetle :: proc(beetle: ^Beetle) -> bool {
   } else if walk_dir == .R {
     position.x += GOOMBA_WALK_SPEED 
   }
+  
+  friction : f32 = .ON_GROUND in flags ? 0.9 : 1
+  velocity.x *= friction
 
   velocity.y = min(Plumber_Physics.max_fall_speed, velocity.y + Plumber_Physics.fall_gravity) 
   position += velocity
 
   if .DEAD not_in base.flags {
+    flags &= ~{.ON_GROUND}
     // do tilemap collision
     {
+      tilemap := &GameState.active_level.tilemap
       size, offset := get_beetle_collision_size_and_offset(beetle^)
-      using collision_result := do_tilemap_collision(&GameState.active_level.tilemap, position, size, offset)
+      using collision_result := do_tilemap_collision(tilemap, position, size, offset)
       position += position_adjust
       if .L in push_out {
         if walk_dir == .L do walk_dir = .R
@@ -48,9 +53,10 @@ update_beetle :: proc(beetle: ^Beetle) -> bool {
       }
       if .D in push_out {
         if velocity.y > 0 do velocity.y = 0
+        flags |= {.ON_GROUND}
       }
       for dir in ([]Direction {.D, .DL, .DR}) {
-        tile := indexed_tiles[dir]
+        tile := get_tile(tilemap, indexed_tiles[dir])
         if tile != nil && tile_is_bumping(tile^) {
           bump_dir := dir
           if bump_dir == .D {
@@ -84,7 +90,7 @@ update_beetle :: proc(beetle: ^Beetle) -> bool {
           p.velocity.y = -Plumber_Physics.bounce_force
           add_bounce_score(p, position)
         } else {
-          change_player_powerup_state(p, p.powerup - Powerup(1))
+          plumber_take_damage(p)
         }
       }
     }

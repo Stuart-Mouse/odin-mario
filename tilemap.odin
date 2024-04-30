@@ -15,9 +15,9 @@ TILE_TEXTURE_SIZE :: 16
 TILE_RENDER_SIZE  :: 32
 
 Tile_Collision :: struct {
-  type  : Tile_Collision_Type,
-  flags : Tile_Collision_Flags,
-}
+    type  : Tile_Collision_Type,
+    flags : Tile_Collision_Flags,
+}  
 
 Tile_Collision_Type :: enum {
     BLOCK,
@@ -26,10 +26,11 @@ Tile_Collision_Type :: enum {
 
 Tile_Collision_Flags :: bit_set[Tile_Collision_Flag]
 Tile_Collision_Flag  :: enum {
-  SOLID,      // the player will be pushed out of the tile
-  BUMPABLE,   // will be bumped when hit, but not broken
-  BREAKABLE,  // will break when hit
-  CONTAINER,  // can have entities placed inside it
+    SOLID,      // the player will be pushed out of the tile
+    BUMPABLE,   // will be bumped when hit, but not broken
+    BREAKABLE,  // will break when hit
+    CONTAINER,  // can have entities placed inside it
+    HIDDEN,     // kaizo blocks
 }
 
 TILE_BUMP_TIME     :: 10
@@ -38,126 +39,182 @@ TILE_BUMP_DISTANCE :: 0.25
 Tile_Flags :: bit_set[Tile_Flag]
 Tile_Flag :: enum {
   BROKEN,
+  EMPTIED,
+  HIDDEN,
+  
+  // CONTAINER_RELEASE_ALL_AT_ONCE,
 }
 
 Tile :: struct {
-  id         : u32,
-  flags      : Tile_Flags,
-  bump_clock : u8,
-  contains   : Entity_Type,
+    id         : u32,
+    flags      : Tile_Flags,
+    bump_clock : u8,
+    
+    contains       : Entity_Type,
+    contains_count : u8,
 }
 
 // We could make this dynamic later on
 MAX_TILE_ANIM_FRAMES :: 8
 
 Tile_Info :: struct {
-  name      : [32] u8,
-  collision : Tile_Collision,
-
-  // TODO: split into become_on_hit, become_on_broken, become_on_emptied or something 
-  become_on_use : u32, // when a tile is bumped or broken, it will turn into this tile type
-
-  // animations that act on a whole tile type
-  animation : struct {
-    frames  : [MAX_TILE_ANIM_FRAMES] struct {
-      clip_offset : Vec2i,
-      duration    : int,
+    name      : [32] u8,
+    collision : Tile_Collision,
+  
+    // TODO: split into become_on_hit, become_on_broken, become_on_emptied or something 
+    become_on_use : u32, // when a tile is bumped or broken, it will turn into this tile type
+  
+    // animations that act on a whole tile type
+    animation : struct {
+        frames  : [MAX_TILE_ANIM_FRAMES] struct {
+            clip_offset : Vec2i,
+            duration    : int,
+        },
+        frame_count   : int,
+        current_frame : int,
+        frame_clock   : int,
     },
-    frame_count   : int,
-    current_frame : int,
-    frame_clock   : int,
-  },
 }
 
 update_tilemap :: proc(using tilemap: ^Tilemap) {
-  for &tile, index in data {
-    if tile.id == 0 do continue
-    ti := get_tile_info(tile)
-
-    if .BUMPABLE in ti.collision.flags {
-      if tile.bump_clock > 0 {
-        tile.bump_clock -= 1
-        if .CONTAINER in ti.collision.flags {
-          if tile.contains != nil {
-            slot := get_next_empty_slot(&GameState.active_level.entities)
-            init_entity(&slot.data, tile.contains)
-            position := Vector2 { f32(i32(index) % size.x), f32(i32(index) / size.x) }
-            slot.data.base.position = position + { 0.5, -0.5 }
-            slot.data.base.velocity = { 0, -0.2 }
-            slot.occupied = true
-            tile.contains = nil
-          }
-          if tile.bump_clock == 0 {
-            tile = { id = ti.become_on_use }
-            continue
-          }
+    for &tile, index in data {
+        if tile.id == 0 do continue
+        ti := get_tile_info(tile)
+    
+        if .BUMPABLE in ti.collision.flags {
+            if tile.bump_clock > 0 {
+                tile.bump_clock -= 1
+                if tile.bump_clock == 0 {
+                    if .BROKEN in tile.flags {
+                        tile = {}
+                    } else if .EMPTIED in tile.flags {
+                        tile = { id = ti.become_on_use }
+                    }
+                }
+            }
         }
-        if .BROKEN in tile.flags {
-          if tile.bump_clock == 0 {
-            tile = {}
-          }
-        }
-      }
     }
-  }
+}
+
+Tile_Bump_Type :: enum {
+    SMALL_PLUMBER,
+    
+    BIG_PLUMBER,
+    SHELL,
+}
+
+bump_tile :: proc(tilemap: ^Tilemap, tile_index: int, bump_type: Tile_Bump_Type, bump_dir: Direction) {
+    tile := get_tile(tilemap, tile_index)
+    
+    if tile == nil do return
+    ti := get_tile_info(tile^)
+    
+    if .BUMPABLE not_in ti.collision.flags do return 
+    
+    tile_position := Vector2 { f32(i32(tile_index) % tilemap.size.x), f32(i32(tile_index) / tilemap.size.x) }
+    
+    if tile.bump_clock == 0 {
+        tile.bump_clock = TILE_BUMP_TIME
+
+        if .CONTAINER in ti.collision.flags && tile.contains != nil {
+            if tile.contains == .COIN && tile.contains_count == 1 {
+                plumber_add_coin(&GameState.active_level.plumber)
+                spawn_coin_particle(tile_position + {0.5, 0})
+            }
+            else {
+                max_spread_count : int : 7
+                excess_count     := max(0, int(tile.contains_count) - max_spread_count)
+                corrected_count  := min(int(tile.contains_count) - 1, max_spread_count)
+                vel_spread       := (cast(f32) corrected_count) * 0.02
+                bonus_height     := max(0.1, min(f32(0.5), f32(excess_count) / 13.0)) // should be bonus y force, not actually height
+                
+                for i in 0..<int(tile.contains_count) {
+                    vel_scalar := corrected_count == 0 ? 0 : (f32(i) / f32(int(tile.contains_count) - 1) - 0.5) // -0.5 to 0.5
+                
+                    slot := get_next_empty_slot(&GameState.active_level.entities)
+                    init_entity(&slot.data, tile.contains, hint_dir = (vel_scalar < 0) ? .L : .R)
+                    slot.data.base.position = tile_position + { 0.5, -0.5 }
+                    slot.data.base.velocity = { vel_spread * vel_scalar, -(0.2 + bonus_height * (0.5 - abs(vel_scalar))) }
+                    slot.occupied = true
+                }
+            }
+            tile.contains = nil
+            tile.flags |= {.EMPTIED}
+        }
+        else if .BREAKABLE in ti.collision.flags {
+            if bump_type >= .BIG_PLUMBER {
+                tile.flags |= { .BROKEN }
+                create_block_break_particles(
+                    tile      = tile^,
+                    position  = tile_position,
+                    pieces    = { 2, 2 },
+                    vel_x     = { -0.07,  0.07 },
+                    vel_y     = { -0.35, -0.30 },
+                    vel_ax    = { -7   ,  7    },
+                    vel_var   = {  0.05,  0.05,  3 },
+                    // vel_extra = velocity * { 0.5, 0 },
+                )
+            }
+        }
+    }
 }
 
 tile_info_lookup : [dynamic] Tile_Info
 
 get_tile_info :: proc(tile: Tile) -> ^Tile_Info {
-  if tile.id < 0 || int(tile.id) >= len(tile_info_lookup) {
-    fmt.println("Error: tile id was out of range.")
-    return nil
-  }
-  return &tile_info_lookup[tile.id]
+    if tile.id < 0 || int(tile.id) >= len(tile_info_lookup) {
+        fmt.println("Error: tile id was out of range.")
+        return nil
+    }
+    return &tile_info_lookup[tile.id]
 }
 
 update_tile_animations :: proc() {
-	for i in 1..<len(tile_info_lookup) {
-		ti := &tile_info_lookup[i]
-    using ti.animation
-		if frame_count > 1 {
-			frame_clock += 1
-			if frame_clock >= frames[current_frame].duration {
-				current_frame += 1
-				frame_clock = 0
-				if current_frame >= frame_count {
-					current_frame  = 0
-				}
-			}
-		}
-	}
+    for i in 1..<len(tile_info_lookup) {
+        ti := &tile_info_lookup[i]
+        using ti.animation
+        if frame_count > 1 {
+            frame_clock += 1
+            if frame_clock >= frames[current_frame].duration {
+                current_frame += 1
+                frame_clock = 0
+                if current_frame >= frame_count {
+                    current_frame  = 0
+                }
+            }
+        }
+    }
 }
 
 reset_tile_animations :: proc() {
-	for i in 1..<len(tile_info_lookup) {
-		ti := &tile_info_lookup[i]
-		ti.animation.current_frame = 0
-		ti.animation.frame_clock   = 0
-	}
+  for i in 1..<len(tile_info_lookup) {
+    ti := &tile_info_lookup[i]
+    ti.animation.current_frame = 0
+    ti.animation.frame_clock   = 0
+  }
 }
 
 tile_dir_clips : [16] Vec2i = {
-	int(Directions{}) = { 0, 0 },
+  int(Directions{}) = { 0, 0 },
 
-	int(Directions{.U}) = { 1, 3 },
-	int(Directions{.D}) = { 1, 0 },
-	int(Directions{.L}) = { 3, 1 },
-	int(Directions{.R}) = { 0, 1 },
+  int(Directions{.U}) = { 1, 3 },
+  int(Directions{.D}) = { 1, 0 },
+  int(Directions{.L}) = { 3, 1 },
+  int(Directions{.R}) = { 0, 1 },
 
-	int(Directions{.U, .D}) = { 1, 2 },
-	int(Directions{.U, .L}) = { 3, 3 },
-	int(Directions{.U, .R}) = { 2, 3 },
-	int(Directions{.D, .L}) = { 3, 2 },
-	int(Directions{.D, .R}) = { 2, 2 },
-	int(Directions{.L, .R}) = { 2, 1 },
+  int(Directions{.U, .D}) = { 1, 2 },
+  int(Directions{.U, .L}) = { 3, 3 },
+  int(Directions{.U, .R}) = { 2, 3 },
+  int(Directions{.D, .L}) = { 3, 2 },
+  int(Directions{.D, .R}) = { 2, 2 },
+  int(Directions{.L, .R}) = { 2, 1 },
 
-	int(Directions{.U, .D, .L}) = { 0, 2 },
-	int(Directions{.U, .D, .R}) = { 0, 3 },
-	int(Directions{.U, .L, .R}) = { 2, 0 },
-	int(Directions{.D, .L, .R}) = { 3, 0 },
+  int(Directions{.U, .D, .L}) = { 0, 2 },
+  int(Directions{.U, .D, .R}) = { 0, 3 },
+  int(Directions{.U, .L, .R}) = { 2, 0 },
+  int(Directions{.D, .L, .R}) = { 3, 0 },
 
-	int(Directions{.U, .D, .L, .R}) = { 1, 1 },
+  int(Directions{.U, .D, .L, .R}) = { 1, 1 },
 }
 
 Tile_Render_Info :: struct {
@@ -185,6 +242,10 @@ get_tile_render_info :: proc(tile: Tile) -> Tile_Render_Info {
     y = clip_offset.y * TILE_TEXTURE_SIZE,
     w = TILE_TEXTURE_SIZE,
     h = TILE_TEXTURE_SIZE,
+  }
+  
+  if .HIDDEN in tile.flags {
+    tri.color_mod.a = 0xF
   }
 
   return tri
@@ -222,7 +283,7 @@ Tilemap :: struct {
 
 init_tilemap :: proc(tilemap: ^Tilemap) {
   tilemap.size = { LEVEL_TILE_WIDTH, SCREEN_TILE_HEIGHT }
-  for j in 0..<tilemap.size.x {
+  for j in 0..<int(tilemap.size.x) {
     get_tile(tilemap,  j, 13)^ = { id = 1 }
     get_tile(tilemap,  j, 14)^ = { id = 1 }
   }
@@ -233,19 +294,19 @@ get_tile :: proc {
   get_tile_2D,
 }
 
-get_tile_1D :: proc(tilemap: ^Tilemap, i: i32) -> ^Tile {
-  if i < 0 || i >= tilemap.size.x * tilemap.size.y {
+get_tile_1D :: proc(tilemap: ^Tilemap, i: int) -> ^Tile {
+  if i < 0 || i >= int(tilemap.size.x) * int(tilemap.size.y) {
     return nil
   }
   return &tilemap.data[i]
 }
 
-get_tile_2D :: proc(tilemap: ^Tilemap, x, y: i32) -> ^Tile {
-  if x < 0 || x >= tilemap.size.x ||
-     y < 0 || y >= tilemap.size.y {
+get_tile_2D :: proc(tilemap: ^Tilemap, x, y: int) -> ^Tile {
+  if x < 0 || x >= int(tilemap.size.x) ||
+     y < 0 || y >= int(tilemap.size.y) {
     return nil
   }
-  return &tilemap.data[y * tilemap.size.x + x]
+  return &tilemap.data[y * int(tilemap.size.x) + x]
 }
 
 set_all_tiles_on_tilemap :: proc(tilemap: ^Tilemap, tile: Tile) {
@@ -289,153 +350,167 @@ render_tilemap :: proc(tilemap: ^Tilemap, tile_render_unit: f32, offset: Vector2
 }
 
 Tilemap_Collision_Results :: struct {
-  push_out        : Directions,
-	indexed_tiles	  : [Direction] ^Tile,
-	points      	  : [Direction] Vector2,
-	indices      	  : [Direction] Vec2i,
-	resolutions	    : [Direction] Direction, // really only used for corner cases, so we can see what which primary case they resolved to
-  position_adjust : Vector2,
-  velocity_adjust : Vector2,
-  set_velocity    : bool,
+    push_out        : Directions,
+    push_out_dir    : [4] Direction,        // tells us which collision point was used to push the player out in the given direction
+    indexed_tiles   : [Direction] int,
+    points          : [Direction] Vector2,
+    indices         : [Direction] Vec2i,
+    resolutions     : [Direction] Direction, // really only used for corner cases, so we can see what which primary case they resolved to
+    position_adjust : Vector2,
+    velocity_adjust : Vector2,
+    set_velocity    : bool,
 }
 
-do_tilemap_collision :: proc(tilemap: ^Tilemap, position, size, offset: Vector2) -> Tilemap_Collision_Results {
-	results : Tilemap_Collision_Results
-  results.resolutions = { .U = .U, .D = .D, .L = .L, .R = .R, .UL = .UL, .UR = .UR, .DL = .DL, .DR = .DR }
-  
-	push_out     : Directions = {}
-  push_out_dir : [4] Direction = { Direction(0), Direction(1), Direction(2), Direction(3) }
-
-  points  : [Direction] Vector2
-  indices : [Direction] Vec2i
-
-  points[Direction.U].x = position.x + offset.x + size.x / 2
-  points[Direction.U].y = position.y + offset.y
-  points[Direction.D].x = position.x + offset.x + size.x / 2
-  points[Direction.D].y = position.y + offset.y + size.y
-  points[Direction.L].x = position.x + offset.x
-  points[Direction.L].y = position.y + offset.y + size.y / 2
-  points[Direction.R].x = position.x + offset.x + size.x
-  points[Direction.R].y = position.y + offset.y + size.y / 2
-
-  points[Direction.UR].x = points[Direction.R].x
-  points[Direction.UR].y = points[Direction.U].y
-  points[Direction.DR].x = points[Direction.R].x
-  points[Direction.DR].y = points[Direction.D].y
-  points[Direction.UL].x = points[Direction.L].x
-  points[Direction.UL].y = points[Direction.U].y
-  points[Direction.DL].x = points[Direction.L].x
-  points[Direction.DL].y = points[Direction.D].y
-
-  // convert points to indices
-  for dir_i in Direction(0)..<Direction(8) {
-    indices[dir_i].x = cast(i32) math.floor(points[dir_i].x)
-    indices[dir_i].y = cast(i32) math.floor(points[dir_i].y)
-  }
-
-  // get collision at each point
-  for dir_i in Direction(0)..<Direction(8) {
-    if indices[dir_i].x < 0 || indices[dir_i].x >= tilemap.size.x do continue
-    if indices[dir_i].y < 0 || indices[dir_i].y >= tilemap.size.y do continue
-
-    tile := get_tile(tilemap, indices[dir_i].x, indices[dir_i].y)
-    if tile == nil do continue
+do_tilemap_collision :: proc(tilemap: ^Tilemap, position, size, offset: Vector2, velocity: Vector2 = {}) -> Tilemap_Collision_Results {
+    results : Tilemap_Collision_Results
+    results.resolutions = { .U = .U, .D = .D, .L = .L, .R = .R, .UL = .UL, .UR = .UR, .DL = .DL, .DR = .DR }
     
-    collision := get_tile_collision(tile^)
-    if .SOLID in collision.flags {
-      push_out |= { Direction(dir_i) }
+    push_out     : Directions = {}
+    push_out_dir : [4] Direction = { Direction(0), Direction(1), Direction(2), Direction(3) }
+  
+    points  : [Direction] Vector2
+    indices : [Direction] Vec2i
+  
+    points[Direction.U].x = position.x + offset.x + size.x / 2
+    points[Direction.U].y = position.y + offset.y
+    points[Direction.D].x = position.x + offset.x + size.x / 2
+    points[Direction.D].y = position.y + offset.y + size.y
+    points[Direction.L].x = position.x + offset.x
+    points[Direction.L].y = position.y + offset.y + size.y / 2
+    points[Direction.R].x = position.x + offset.x + size.x
+    points[Direction.R].y = position.y + offset.y + size.y / 2
+  
+    points[Direction.UR].x = points[Direction.R].x
+    points[Direction.UR].y = points[Direction.U].y
+    points[Direction.DR].x = points[Direction.R].x
+    points[Direction.DR].y = points[Direction.D].y
+    points[Direction.UL].x = points[Direction.L].x
+    points[Direction.UL].y = points[Direction.U].y
+    points[Direction.DL].x = points[Direction.L].x
+    points[Direction.DL].y = points[Direction.D].y
+  
+    // convert points to indices
+    for dir_i in Direction(0)..<Direction(8) {
+        indices[dir_i].x = cast(i32) math.floor(points[dir_i].x)
+        indices[dir_i].y = cast(i32) math.floor(points[dir_i].y)
     }
-		
-	results.indexed_tiles[Direction(dir_i)] = tile
-  }
-
-  results.indices  = indices
-  results.points   = points
-  results.push_out = push_out
-
-  // leave early if no points have collision
-  if push_out == {} do return results
-
-  // resolve corner cases into primary direction collision
-  x_frac, y_frac : f32
-  if (.UR in push_out) && (push_out & { .U, .R } == {})  {
-    x_frac =	     (points[Direction.UR].x - math.floor(points[Direction.UR].x))
-    y_frac = 1.0 - (points[Direction.UR].y - math.floor(points[Direction.UR].y))
-    if (x_frac > y_frac) {
-      push_out |= { .U }
-      push_out_dir[Direction.U] = Direction.UR
-			results.resolutions[.UR] = .U
-    } else {
-      push_out |= { .R }
-      push_out_dir[Direction.R] = Direction.UR
-			results.resolutions[.UR] = .R
+  
+    // get collision at each point
+    for dir_i in Direction(0)..<Direction(8) {
+        if indices[dir_i].x < 0 || indices[dir_i].x >= tilemap.size.x do continue
+        if indices[dir_i].y < 0 || indices[dir_i].y >= tilemap.size.y do continue
+    
+        tile_index_1d := int(indices[dir_i].y * tilemap.size.x + indices[dir_i].x)
+    
+        tile := get_tile(tilemap, tile_index_1d)
+        if tile == nil do continue
+        
+        collision := get_tile_collision(tile^)
+        if .SOLID in collision.flags {
+            // not sure if I actually want to handle this here, like this. seems not ideal. but we need to refactor this proc out into multiple probably anyhow in the long term
+            if .HIDDEN in tile.flags {
+                y_frac := points[Direction.U].y - math.floor(points[Direction.U].y)
+                if dir_i == .U && velocity.y < 0 && y_frac > 0.75 {
+                    push_out |= { Direction(dir_i) }
+                    tile.flags &= ~{.HIDDEN}
+                }
+            }
+            else {
+                push_out |= { Direction(dir_i) }
+            }
+        }
+      
+        results.indexed_tiles[Direction(dir_i)] = tile_index_1d
     }
-  }
-  if (.DR in push_out) && (push_out & { .D, .R } == {}) {
-    x_frac = (points[Direction.DR].x - math.floor(points[Direction.DR].x))
-    y_frac = (points[Direction.DR].y - math.floor(points[Direction.DR].y))
-    if (x_frac > y_frac) {
-      push_out |= { .D }
-      push_out_dir[Direction.D] = Direction.DR
-			results.resolutions[.DR] = .D
-    } else {
-      push_out |= { .R }
-      push_out_dir[Direction.R] = Direction.DR
-			results.resolutions[.DR] = .R
-    }
-  }
-  if (.UL in push_out) && (push_out & { .U, .L } == {}) {
-    x_frac = 1.0 - (points[Direction.UL].x - math.floor(points[Direction.UL].x))
-    y_frac = 1.0 - (points[Direction.UL].y - math.floor(points[Direction.UL].y))
-    if (x_frac > y_frac) {
-      push_out |= { .U }
-      push_out_dir[Direction.U] = Direction.UL
-			results.resolutions[.UL] = .U
-    } else {
-      push_out |= { .L }
-      push_out_dir[Direction.L] = Direction.UL
-			results.resolutions[.UL] = .L
-    }
-  }
-  if (.DL in push_out) && (push_out & { .D, .L } == {}) {
-    x_frac = 1.0 - (points[Direction.DL].x - math.floor(points[Direction.DL].x))
-    y_frac =	     (points[Direction.DL].y - math.floor(points[Direction.DL].y))
-    if (x_frac > y_frac) {
-      push_out |= { .D }
-      push_out_dir[Direction.D] = Direction.DL
-			results.resolutions[.DL] = .D
-    } else {
-      push_out |= { .L }
-      push_out_dir[Direction.L] = Direction.DL
-			results.resolutions[.DL] = .L
-    }
-  }
 
-  results.push_out = push_out
-
-  // handle primary direction collision
-  if .U in push_out {
-    push_out_direction := push_out_dir[Direction.U]
-    position_in_block  := 1.0 - (points[push_out_direction].y - f32(indices[push_out_direction].y))
-    results.position_adjust.y += position_in_block;
-  }
-  if .D in push_out {
-    push_out_direction := push_out_dir[Direction.D]
-    position_in_block  := points[push_out_direction].y - f32(indices[push_out_direction].y)
-    results.position_adjust.y -= position_in_block;
-  }
-  if .L in push_out {
-    push_out_direction := push_out_dir[Direction.L]
-    position_in_block  := 1.0 - (points[push_out_direction].x - f32(indices[push_out_direction].x))
-    results.position_adjust.x += position_in_block;
-  }
-  if .R in push_out {
-    push_out_direction := push_out_dir[Direction.R]
-    position_in_block  := points[push_out_direction].x - f32(indices[push_out_direction].x)
-    results.position_adjust.x -= position_in_block;
-  }
-
-  return results
+    results.indices      = indices
+    results.points       = points
+    results.push_out     = push_out
+    results.push_out_dir = push_out_dir
+  
+    // leave early if no points have collision
+    if push_out == {} do return results
+  
+    // resolve corner cases into primary direction collision
+    x_frac, y_frac : f32
+    if (.UR in push_out) && (push_out & { .U, .R } == {})  {
+        x_frac =       (points[Direction.UR].x - math.floor(points[Direction.UR].x))
+        y_frac = 1.0 - (points[Direction.UR].y - math.floor(points[Direction.UR].y))
+        if (x_frac > y_frac) {
+            push_out |= { .U }
+            push_out_dir[Direction.U] = Direction.UR
+            results.resolutions[.UR] = .U
+        } else {
+            push_out |= { .R }
+            push_out_dir[Direction.R] = Direction.UR
+            results.resolutions[.UR] = .R
+        }
+    }
+    if (.DR in push_out) && (push_out & { .D, .R } == {}) {
+        x_frac = (points[Direction.DR].x - math.floor(points[Direction.DR].x))
+        y_frac = (points[Direction.DR].y - math.floor(points[Direction.DR].y))
+        if (x_frac > y_frac) {
+            push_out |= { .D }
+            push_out_dir[Direction.D] = Direction.DR
+            results.resolutions[.DR] = .D
+        } else {
+            push_out |= { .R }
+            push_out_dir[Direction.R] = Direction.DR
+            results.resolutions[.DR] = .R
+        }
+    }
+    if (.UL in push_out) && (push_out & { .U, .L } == {}) {
+        x_frac = 1.0 - (points[Direction.UL].x - math.floor(points[Direction.UL].x))
+        y_frac = 1.0 - (points[Direction.UL].y - math.floor(points[Direction.UL].y))
+        if (x_frac > y_frac) {
+            push_out |= { .U }
+            push_out_dir[Direction.U] = Direction.UL
+            results.resolutions[.UL] = .U
+        } else {
+            push_out |= { .L }
+            push_out_dir[Direction.L] = Direction.UL
+            results.resolutions[.UL] = .L
+        }
+    }
+    if (.DL in push_out) && (push_out & { .D, .L } == {}) {
+        x_frac = 1.0 - (points[Direction.DL].x - math.floor(points[Direction.DL].x))
+        y_frac =       (points[Direction.DL].y - math.floor(points[Direction.DL].y))
+        if (x_frac > y_frac) {
+            push_out |= { .D }
+            push_out_dir[Direction.D] = Direction.DL
+            results.resolutions[.DL] = .D
+        } else {
+            push_out |= { .L }
+            push_out_dir[Direction.L] = Direction.DL
+            results.resolutions[.DL] = .L
+        }
+    }
+    
+    results.push_out = push_out
+    
+    // handle primary direction collision
+    if .U in push_out {
+        push_out_direction := push_out_dir[Direction.U]
+        position_in_block  := 1.0 - (points[push_out_direction].y - f32(indices[push_out_direction].y))
+        results.position_adjust.y += position_in_block;
+    }
+    if .D in push_out {
+        push_out_direction := push_out_dir[Direction.D]
+        position_in_block  := points[push_out_direction].y - f32(indices[push_out_direction].y)
+        results.position_adjust.y -= position_in_block;
+    }
+    if .L in push_out {
+        push_out_direction := push_out_dir[Direction.L]
+        position_in_block  := 1.0 - (points[push_out_direction].x - f32(indices[push_out_direction].x))
+        results.position_adjust.x += position_in_block;
+    }
+    if .R in push_out {
+        push_out_direction := push_out_dir[Direction.R]
+        position_in_block  := points[push_out_direction].x - f32(indices[push_out_direction].x)
+        results.position_adjust.x -= position_in_block;
+    }
+  
+    return results
 }
 
 tile_is_bumping :: proc(tile: Tile) -> bool {
@@ -443,23 +518,23 @@ tile_is_bumping :: proc(tile: Tile) -> bool {
 }
 
 save_level :: proc(path: string) {
-  if !os.write_entire_file(path, mem.any_to_bytes(EditorState.editting_level)) {
-    fmt.println("Failed to save level:", path)
-    return
-  }
-  fmt.println("Saved level:", path)
+    if !os.write_entire_file(path, mem.any_to_bytes(EditorState.editting_level)) {
+        fmt.println("Failed to save level:", path)
+        return
+    }
+    fmt.println("Saved level:", path)
 }
 
 load_level :: proc(path: string) {
-  bytes, ok := os.read_entire_file(path)
-  defer delete(bytes)
-  if ok {
-    dst := &EditorState.editting_level
-    mem.copy(dst, &bytes[0], size_of(dst^))
-    fmt.println("Loaded level:", path)
-    return
-  }
-  fmt.println("Failed to load level:", path)
+    bytes, ok := os.read_entire_file(path)
+    defer delete(bytes)
+    if ok {
+        dst := &EditorState.editting_level
+        mem.copy(dst, &bytes[0], size_of(dst^))
+        fmt.println("Loaded level:", path)
+        return
+    }
+    fmt.println("Failed to load level:", path)
 }
 
 create_block_break_particles :: proc(

@@ -17,10 +17,11 @@ tiles [
     
     {
       name "brick block"
-      collision [ BLOCK [ SOLID, BUMPABLE, BREAKABLE ]]
+      collision [ BLOCK [ SOLID, BUMPABLE, BREAKABLE, CONTAINER ]]
       frames [ 
         [[ 3, 0 ] 0 ]
       ]
+      become_on_use 5
     }
     
     {
