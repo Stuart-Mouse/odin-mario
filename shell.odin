@@ -170,6 +170,14 @@ render_shell :: proc(shell: Entity_Shell, tile_render_unit, offset: Vector2) {
         w = cast(i32) (tile_render_unit.x), 
         h = cast(i32) (tile_render_unit.y),
     }
+    
+    // make the shell shake when the entity is about to unshell
+    if shell.shell_clock > 0 && shell.shell_clock < 60 {
+        offset := (1.0 / 16.0) * tile_render_unit.x
+        mod := (shell.shell_clock / 2) % 4
+        if mod == 1 do rect.x += i32(offset)
+        if mod == 3 do rect.x -= i32(offset)
+    }
 
     sdl.RenderCopyEx(renderer, entities_texture.sdl_texture, &clip, &rect, 0, nil, flip)
 }

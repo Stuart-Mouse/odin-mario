@@ -25,6 +25,11 @@ render_coin :: proc(coin: Coin, tile_render_unit, offset: Vector2) {
     flip : sdl.RendererFlip
     clip, rect : sdl.Rect
     
+    // preliminary bounds check. had a weird crash
+    if frame_index >= len(coin_animation_clips) {
+        frame_index = 0
+    }
+    
     frame_counter += 1
     if frame_counter >= coin_animation_clips[frame_index].duration {
         frame_index += 1

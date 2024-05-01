@@ -177,4 +177,63 @@ tiles [
         [[ 6, 4 ] 0 ]
       ]
     }
+    
+    {
+      name "mushroom stem" 
+      frames [ 
+        [[ 8, 5 ] 0 ]
+      ]
+    }
+    
+    {
+      name "mushroom stem top" 
+      frames [ 
+        [[ 8, 4 ] 0 ]
+      ]
+    }
+    
+    {
+      name "mushroom top left" 
+      collision [ BLOCK [ SOLID ]]
+      frames [ 
+        [[ 7, 3 ] 0 ]
+      ]
+    }
+    
+    {
+      name "mushroom top middle" 
+      collision [ BLOCK [ SOLID ]]
+      frames [ 
+        [[ 8, 3 ] 0 ]
+      ]
+    }
+    
+    {
+      name "mushroom top right"
+      collision [ BLOCK [ SOLID ]]
+      frames [ 
+        [[ 9, 3 ] 0 ]
+      ]
+    }
+    
+    {
+      name "bush left"
+      frames [ 
+        [[ 4, 3 ] 0 ]
+      ]
+    }
+    
+    {
+      name "bush middle"
+      frames [ 
+        [[ 5, 3 ] 0 ]
+      ]
+    }
+    
+    {
+      name "bush right"
+      frames [ 
+        [[ 6, 3 ] 0 ]
+      ]
+    }
 ]

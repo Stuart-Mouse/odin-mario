@@ -3,39 +3,48 @@ package main
 import sdl "vendor:sdl2"
 import "core:fmt"
 import "core:math"
+import "core:strings"
 import "shared:imgui"
 
 EditorInputKeys :: enum {
-  UP,
-  DOWN,
-  LEFT,
-  RIGHT,
-  TOGGLE_TILE_PICKER,
-  CAMERA_DRAG,
-  SET_PLAYER_START,
-  COUNT,
+    UP,
+    DOWN,
+    LEFT,
+    RIGHT,
+    TOGGLE_TILE_PICKER,
+    CAMERA_DRAG,
+    SET_PLAYER_START,
+    PLACE_ENEMIES,
+    COUNT,
 }
 
 editor_controller : [EditorInputKeys.COUNT] InputKey = {
-    EditorInputKeys.UP    = { sc = .UP    },
-	EditorInputKeys.DOWN  = { sc = .DOWN  },
-	EditorInputKeys.LEFT  = { sc = .LEFT  },
-	EditorInputKeys.RIGHT = { sc = .RIGHT },
-	EditorInputKeys.TOGGLE_TILE_PICKER = { sc = .T },
-	EditorInputKeys.CAMERA_DRAG = { sc = .SPACE },
-	EditorInputKeys.SET_PLAYER_START = { sc = .P },
+    EditorInputKeys.UP                 = { sc = .UP    },
+    EditorInputKeys.DOWN               = { sc = .DOWN  },
+    EditorInputKeys.LEFT               = { sc = .LEFT  },
+    EditorInputKeys.RIGHT              = { sc = .RIGHT },
+    EditorInputKeys.TOGGLE_TILE_PICKER = { sc = .T     },
+    EditorInputKeys.CAMERA_DRAG        = { sc = .SPACE },
+    EditorInputKeys.SET_PLAYER_START   = { sc = .P     },
+    EditorInputKeys.PLACE_ENEMIES      = { sc = .M     },
 }
 
 EditorState : struct {
     mouse_tile_index    : int,
-	selected_type	    : typeid,
-	selected_entity	    : Entity,
+    
+    selected_type       : typeid,
+    selected_entity     : Entity,
+    selected_enemy      : Enemy,
     selected_tile       : Tile,
+    
     show_tile_picker    : bool,
     camera              : Camera,
     mouse_tile_position : Vector2,
     
-    editting_level : Level_Data,
+    selection_rect      : Vector2,
+    
+    
+    editting_level      : Level_Data,
 }
 
 EDITOR_TILE_UNIT : f32 = 32.0
@@ -70,6 +79,9 @@ update_editor :: proc() {
     }
     if bool(editor_controller[RIGHT].state & KEYSTATE_PRESSED) {
         camera.x += CAMERA_MOVE_SPEED
+    }
+    if bool(editor_controller[PLACE_ENEMIES].state & KEYSTATE_PRESSED) {
+        selected_type = Enemy
     }
 
     if bool(editor_controller[CAMERA_DRAG].state & KEYSTATE_DOWN) {
@@ -124,9 +136,19 @@ update_editor :: proc() {
             slot := get_next_empty_slot(&editting_level.entities)
             if slot != nil {
                 slot.occupied = true
-                // init_entity(&slot.data, selected_entity)
                 slot.data = selected_entity
                 slot.data.base.position = {
+                    snap_to_nearest_unit(mouse_tile_position.x, 0.5),
+                    snap_to_nearest_unit(mouse_tile_position.y, 0.5),
+                }
+            }
+        }
+        else if selected_type == Enemy && Mouse.left == KEYSTATE_PRESSED {
+            slot := get_next_empty_slot(&editting_level.enemies)
+            if slot != nil {
+                slot.occupied = true
+                slot.data = selected_enemy
+                slot.data.position = {
                     snap_to_nearest_unit(mouse_tile_position.x, 0.5),
                     snap_to_nearest_unit(mouse_tile_position.y, 0.5),
                 }
@@ -142,18 +164,19 @@ update_editor :: proc() {
     }
 
     @static entity_details_popup_target : ^Slot(Entity)
-    @static tile_details_popup_target : ^Tile
+    @static tile_details_popup_target   : ^Tile
 
     if Mouse.right == KEYSTATE_PRESSED {
         clicked_entity := false
         for &slot in editting_level.entities.slots {
-  	        e     := &slot.data
-  	        frect := get_entity_collision_rect(e^)
-  	        if is_point_within_frect(mouse_tile_position, frect) {
-                clicked_entity = true
-                entity_details_popup_target = &slot
-                imgui.OpenPopup("Entity Details Popup", {})
-  	        }
+            e     := &slot.data
+            frect := get_entity_collision_rect(e^)
+            if is_point_within_frect(mouse_tile_position, frect) {
+                slot = {}
+                // clicked_entity = true
+                // entity_details_popup_target = &slot
+                // imgui.OpenPopup("Entity Details Popup", {})
+            }
         }
         if !clicked_entity {
             tile := get_tile(tilemap, mouse_tile_index)
@@ -174,6 +197,7 @@ update_editor :: proc() {
             imgui.ComboEnum("contains", &tile_details_popup_target.contains)
             if tile_details_popup_target.contains != nil {
                 contains_count := cast(i32) tile_details_popup_target.contains_count
+                if contains_count == 0 do contains_count = 1
                 imgui.SliderInt("contains count", &contains_count, 1, 5)
                 tile_details_popup_target.contains_count = cast(u8) contains_count
             }
@@ -182,18 +206,18 @@ update_editor :: proc() {
         imgui.EndPopup()
     }
 
-    if imgui.BeginPopup("Entity Details Popup", {}) {
-        if entity_details_popup_target == nil {
-          imgui.CloseCurrentPopup()
-        } else {
-            // imgui.TreeNodeAny("Entity", entity_details_popup_target.data)
-            if imgui.Button("Delete") {
-                entity_details_popup_target^ = {}
-                entity_details_popup_target = nil
-            }
-        }
-        imgui.EndPopup()
-    }
+    // if imgui.BeginPopup("Entity Details Popup", {}) {
+    //     if entity_details_popup_target == nil {
+    //       imgui.CloseCurrentPopup()
+    //     } else {
+    //         // imgui.TreeNodeAny("Entity", entity_details_popup_target.data)
+    //         if imgui.Button("Delete") {
+    //             entity_details_popup_target^ = {}
+    //             entity_details_popup_target = nil
+    //         }
+    //     }
+    //     imgui.EndPopup()
+    // }
 
     if editor_controller[TOGGLE_TILE_PICKER].state == KEYSTATE_PRESSED {
         show_tile_picker = !show_tile_picker
@@ -202,6 +226,18 @@ update_editor :: proc() {
     if show_tile_picker {
         flags : imgui.WindowFlags = { .NoNavInputs }
         img_size, img_uv0, img_uv1 : imgui.Vec2
+        
+        texture_clip_to_uv_pair :: proc(rect: sdl.Rect, texture: Texture) -> (imgui.Vec2, imgui.Vec2) {
+            pixel_coord_to_uv :: proc(x, y, img_w, img_h: int) -> imgui.Vec2 {
+                return {
+                    cast(f32) x / cast(f32) img_w,
+                    cast(f32) y / cast(f32) img_h,
+                }
+            }
+            
+            return pixel_coord_to_uv(int(rect.x         ), int(rect.y         ), texture.width, texture.height), 
+                   pixel_coord_to_uv(int(rect.x + rect.w), int(rect.y + rect.h), texture.width, texture.height)
+        }
   
         if imgui.Begin("Tile Picker", &show_tile_picker, flags) {
             imgui.SeparatorText("Tiles")
@@ -209,14 +245,8 @@ update_editor :: proc() {
                 tri := get_tile_render_info({ id = u32(tile_id) })
                 if tile_id % 8 != 0 do imgui.SameLine()
                 img_size = { 16, 16 }
-                img_uv0  = { 
-                    f32(tri.clip.x) / f32(tiles_texture.width ), 
-                    f32(tri.clip.y) / f32(tiles_texture.height),
-                }
-                img_uv1  = img_uv0 + { 
-                    TILE_TEXTURE_SIZE / f32(tiles_texture.width ), 
-                    TILE_TEXTURE_SIZE / f32(tiles_texture.height),
-                }
+                
+                img_uv0, img_uv1 = texture_clip_to_uv_pair(tri.clip, tiles_texture)
       
                 if imgui.ImageButtonEx(cstring(&tile_info.name[0]), tiles_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
                     selected_type = Tile
@@ -225,15 +255,25 @@ update_editor :: proc() {
                 imgui.SetItemTooltip(cstring(&tile_info.name[0]))
             }
         }
-
-	    imgui.SeparatorText("Entities")
+        
+        // imgui.SeparatorText("Enemies")
+        // for &et in enemy_templates {
+        //     clip := get_enemy_template_icon_clip(et, int(img_size.x), int(img_size.y))
+        //     img_uv0, img_uv1 = texture_clip_to_uv_pair(clip, entities_texture)
+        //     if imgui.ImageButtonEx(strings.clone_to_cstring(et.name, context.temp_allocator), entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
+        //         selected_type = Enemy
+        //         init_enemy(&selected_enemy, &et)
+        //     }
+        // }
+        
+        imgui.SeparatorText("Entities")
         img_uv0  = {  0,  0 }
         img_uv1  = { 
             16 / f32(entities_texture.width ), 
             16 / f32(entities_texture.height),
         }
         if imgui.ImageButtonEx("Goomba", entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
-            selected_type   = Entity
+            selected_type = Entity
             init_entity(&selected_entity, .GOOMBA)
         }
         img_size = { 16, 16 }
@@ -346,90 +386,91 @@ update_editor :: proc() {
 }
 
 render_editor :: proc() {
-  using EditorState
-  using GameState
-
-  sdl.RenderSetViewport(renderer, nil)
-  sdl.SetRenderDrawColor(renderer, 0x22, 0x22, 0x55, 0xff)
-  sdl.RenderClear(renderer)
+    using EditorState
+    using GameState
   
-  sdl.SetRenderDrawColor(renderer, u8(sky_color.r * 255), u8(sky_color.g * 255), u8(sky_color.b * 255), u8(sky_color.a * 255))
-  sdl.RenderFillRect(renderer, &{
-    x = i32(-camera.position.x * EDITOR_TILE_UNIT),
-    y = i32(-camera.position.y * EDITOR_TILE_UNIT),
-    w = editting_level.tilemap.size.x * i32(EDITOR_TILE_UNIT),
-    h = editting_level.tilemap.size.y * i32(EDITOR_TILE_UNIT),
-  })
-
-  render_tilemap(&editting_level.tilemap, EDITOR_TILE_UNIT, -camera.position)
-  render_plumber(&editting_level.plumber, EDITOR_TILE_UNIT, -camera.position)
-  for &slot in editting_level.entities.slots {
-    if slot.occupied do render_entity(slot.data, EDITOR_TILE_UNIT, -camera.position)
-  }
-  render_grid(
-    { i32(EDITOR_TILE_UNIT), i32(EDITOR_TILE_UNIT) }, 
-    { -i32(camera.position.x * EDITOR_TILE_UNIT), -i32(camera.position.y * EDITOR_TILE_UNIT) },
-  )
-
-  mouse_tile_rect := get_grid_tile_rect(
-    mouse_tile_index, 
-    { EDITOR_TILE_UNIT, EDITOR_TILE_UNIT }, 
-    editting_level.tilemap.size, 
-    -camera.position, 
-  )
+    sdl.RenderSetViewport(renderer, nil)
+    sdl.SetRenderDrawColor(renderer, 0x22, 0x22, 0x55, 0xff)
+    sdl.RenderClear(renderer)
+    
+    sdl.SetRenderDrawColor(renderer, u8(sky_color.r * 255), u8(sky_color.g * 255), u8(sky_color.b * 255), u8(sky_color.a * 255))
+    sdl.RenderFillRect(renderer, &{
+        x = i32(-camera.position.x * EDITOR_TILE_UNIT),
+        y = i32(-camera.position.y * EDITOR_TILE_UNIT),
+        w = editting_level.tilemap.size.x * i32(EDITOR_TILE_UNIT),
+        h = editting_level.tilemap.size.y * i32(EDITOR_TILE_UNIT),
+    })
   
-  if selected_type == Tile {
-    if selected_tile.id != 0 {
-      tri := get_tile_render_info(selected_tile)
-      sdl.SetTextureColorMod(tri.texture, tri.color_mod.r, tri.color_mod.g, tri.color_mod.b)
-      sdl.SetTextureAlphaMod(tri.texture, 0x88)
-      sdl.RenderCopyF(renderer, tri.texture, &tri.clip, &mouse_tile_rect)
+    render_tilemap(&editting_level.tilemap, EDITOR_TILE_UNIT, -camera.position)
+    render_plumber(&editting_level.plumber, EDITOR_TILE_UNIT, -camera.position)
+    for &slot in editting_level.entities.slots {
+        if slot.occupied do render_entity(slot.data, EDITOR_TILE_UNIT, -camera.position)
     }
-    sdl.SetRenderDrawColor(renderer, 0xff, 0xff, 0xff, 0xff)
-    sdl.RenderDrawRectF(renderer, &mouse_tile_rect)
-  } else if selected_type == Entity {
-		// temp_entity : Entity
-		// init_entity(&temp_entity, selected_entity)
-		render_entity(selected_entity, EDITOR_TILE_UNIT, {
-			snap_to_nearest_unit(mouse_tile_position.x, 0.5),
-			snap_to_nearest_unit(mouse_tile_position.y, 0.5),
-		} - camera.position)
-	}
+    for &slot in editting_level.enemies.slots {
+        if slot.occupied do render_enemy(slot.data, EDITOR_TILE_UNIT, -camera.position)
+    }
+    render_grid(
+        { i32(EDITOR_TILE_UNIT), i32(EDITOR_TILE_UNIT) }, 
+        { -i32(camera.position.x * EDITOR_TILE_UNIT), -i32(camera.position.y * EDITOR_TILE_UNIT) },
+    )
+
+    mouse_tile_rect := get_grid_tile_rect(
+        mouse_tile_index, 
+        { EDITOR_TILE_UNIT, EDITOR_TILE_UNIT }, 
+        editting_level.tilemap.size, 
+        -camera.position, 
+    )
+    
+    if selected_type == Tile {
+        if selected_tile.id != 0 {
+            tri := get_tile_render_info(selected_tile)
+            sdl.SetTextureColorMod(tri.texture, tri.color_mod.r, tri.color_mod.g, tri.color_mod.b)
+            sdl.SetTextureAlphaMod(tri.texture, 0x88)
+            sdl.RenderCopyF(renderer, tri.texture, &tri.clip, &mouse_tile_rect)
+        }
+        sdl.SetRenderDrawColor(renderer, 0xff, 0xff, 0xff, 0xff)
+        sdl.RenderDrawRectF(renderer, &mouse_tile_rect)
+    } else if selected_type == Entity {
+        render_entity(selected_entity, EDITOR_TILE_UNIT, {
+            snap_to_nearest_unit(mouse_tile_position.x, 0.5),
+            snap_to_nearest_unit(mouse_tile_position.y, 0.5),
+        } - camera.position)
+    }
 }
 
 render_grid_f :: proc(tile_size, offset: Vector2) {
-  line_count_x : f32 = f32(WINDOW_WIDTH)  / tile_size.x + 1.0
-  line_count_y : f32 = f32(WINDOW_HEIGHT) / tile_size.y + 1.0
+    line_count_x : f32 = f32(WINDOW_WIDTH)  / tile_size.x + 1.0
+    line_count_y : f32 = f32(WINDOW_HEIGHT) / tile_size.y + 1.0
 
-  line_start_x : f32 = math.mod_f32(offset.x, tile_size.x)
-  line_start_y : f32 = math.mod_f32(offset.y, tile_size.y)
+    line_start_x : f32 = math.mod_f32(offset.x, tile_size.x)
+    line_start_y : f32 = math.mod_f32(offset.y, tile_size.y)
 
-  sdl.SetRenderDrawColor(renderer, 0x22, 0x22, 0x55, 0x88)
-  for i: f32; i < line_count_x; i += 1 {
-    x_pos := line_start_x + i * tile_size.x
-    sdl.RenderDrawLineF(renderer, x_pos, 0, x_pos, f32(WINDOW_HEIGHT))
-  }
-  for i: f32; i < line_count_y; i += 1 {
-    y_pos := line_start_y + i * tile_size.y
-    sdl.RenderDrawLineF(renderer, 0, y_pos, f32(WINDOW_WIDTH), y_pos)
-  }
+    sdl.SetRenderDrawColor(renderer, 0x22, 0x22, 0x55, 0x88)
+    for i: f32; i < line_count_x; i += 1 {
+        x_pos := line_start_x + i * tile_size.x
+        sdl.RenderDrawLineF(renderer, x_pos, 0, x_pos, f32(WINDOW_HEIGHT))
+    }
+    for i: f32; i < line_count_y; i += 1 {
+        y_pos := line_start_y + i * tile_size.y
+        sdl.RenderDrawLineF(renderer, 0, y_pos, f32(WINDOW_WIDTH), y_pos)
+    }
 }
 
 render_grid :: proc(tile_size, offset: Vec2i) {
-  line_count_x : i32 = WINDOW_WIDTH  / tile_size.x + 1.0
-  line_count_y : i32 = WINDOW_HEIGHT / tile_size.y + 1.0
+    line_count_x : i32 = WINDOW_WIDTH  / tile_size.x + 1.0
+    line_count_y : i32 = WINDOW_HEIGHT / tile_size.y + 1.0
 
-  line_start_x : i32 = offset.x % tile_size.x
-  line_start_y : i32 = offset.y % tile_size.y
+    line_start_x : i32 = offset.x % tile_size.x
+    line_start_y : i32 = offset.y % tile_size.y
 
-  sdl.SetRenderDrawColor(renderer, 0x22, 0x22, 0x55, 0x88)
-  for i: i32; i < line_count_x; i += 1 {
-    x_pos := line_start_x + i * tile_size.x
-    sdl.RenderDrawLine(renderer, x_pos, 0, x_pos, WINDOW_HEIGHT)
-  }
-  for i: i32; i < line_count_y; i += 1 {
-    y_pos := line_start_y + i * tile_size.y
-    sdl.RenderDrawLine(renderer, 0, y_pos, WINDOW_WIDTH, y_pos)
-  }
+    sdl.SetRenderDrawColor(renderer, 0x22, 0x22, 0x55, 0x88)
+    for i: i32; i < line_count_x; i += 1 {
+        x_pos := line_start_x + i * tile_size.x
+        sdl.RenderDrawLine(renderer, x_pos, 0, x_pos, WINDOW_HEIGHT)
+    }
+    for i: i32; i < line_count_y; i += 1 {
+        y_pos := line_start_y + i * tile_size.y
+        sdl.RenderDrawLine(renderer, 0, y_pos, WINDOW_WIDTH, y_pos)
+    }
 }
 

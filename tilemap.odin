@@ -132,6 +132,8 @@ bump_tile :: proc(tilemap: ^Tilemap, tile_index: int, bump_type: Tile_Bump_Type,
                     vel_scalar := corrected_count == 0 ? 0 : (f32(i) / f32(int(tile.contains_count) - 1) - 0.5) // -0.5 to 0.5
                 
                     slot := get_next_empty_slot(&GameState.active_level.entities)
+                    if slot == nil do break
+                    
                     init_entity(&slot.data, tile.contains, hint_dir = (vel_scalar < 0) ? .L : .R)
                     slot.data.base.position = tile_position + { 0.5, -0.5 }
                     slot.data.base.velocity = { vel_spread * vel_scalar, -(0.2 + bonus_height * (0.5 - abs(vel_scalar))) }

@@ -44,7 +44,7 @@ render_goomba :: proc(goomba: Goomba, tile_render_unit, offset: Vector2) {
 GOOMBA_DEAD_TIME :: 30
 GOOMBA_WALK_TIME :: 20
 
-GOOMBA_WALK_SPEED : f32 = 0.025
+GOOMBA_WALK_SPEED : f32 = 0.03
 
 update_goomba :: proc(goomba: ^Goomba) -> bool {
     using goomba

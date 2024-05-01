@@ -25,205 +25,219 @@ renderer : ^sdl.Renderer
 small_text_texture : Texture
 
 ProgramMode :: enum {
-  GAME,
-  EDITOR,
+    GAME,
+    EDITOR,
 }
 
 program_mode : ProgramMode = .GAME
 
 ProgramInputKeys :: enum {
-  SET_MODE_GAME,
-  SET_MODE_EDITOR,
-  RELOAD_SCREEN,
-  SHOW_DEBUG_WINDOW,
-  TOGGLE_IMGUI_RENDER_ABOVE,
-  PAUSE,
-  STEP_FRAME,
-  RESET,
-  COUNT,
+    SET_MODE_GAME,
+    SET_MODE_EDITOR,
+    RELOAD_SCREEN,
+    SHOW_DEBUG_WINDOW,
+    TOGGLE_IMGUI_RENDER_ABOVE,
+    PAUSE,
+    STEP_FRAME,
+    RESET,
+    COUNT,
 }
 
 program_controller : [ProgramInputKeys.COUNT] InputKey = {
-  ProgramInputKeys.SET_MODE_GAME     = { sc = .F1 },
-  ProgramInputKeys.SET_MODE_EDITOR   = { sc = .F2 },
-  ProgramInputKeys.RELOAD_SCREEN     = { sc = .F4 },
-  ProgramInputKeys.SHOW_DEBUG_WINDOW = { sc = .F5 },
+    ProgramInputKeys.SET_MODE_GAME     = { sc = .F1  },
+    ProgramInputKeys.SET_MODE_EDITOR   = { sc = .F2  },
+    ProgramInputKeys.RELOAD_SCREEN     = { sc = .F4  },
+    ProgramInputKeys.SHOW_DEBUG_WINDOW = { sc = .F5  },
 
-  ProgramInputKeys.PAUSE      = { sc = .F9  },
-  ProgramInputKeys.STEP_FRAME = { sc = .F10 },
+    ProgramInputKeys.PAUSE             = { sc = .F9  },
+    ProgramInputKeys.STEP_FRAME        = { sc = .F10 },
 
-  ProgramInputKeys.RESET = { sc = .F6 },
-
+    ProgramInputKeys.RESET             = { sc = .F6  },
 }
 
 GameState : struct {
-  active_level : Level_Data,
-  paused : bool,
-  powerup_state_change_anim: struct {
-    from, to : Powerup,
-    timer    : int,
-  }
+    active_level : Level_Data,
+    paused : bool,
+    powerup_state_change_anim: struct {
+        from, to : Powerup,
+        timer    : int,
+    }
 }
 
+// the structure used at runtime to store all data for a level
 Level_Data :: struct {
-  plumber   : Plumber,
-  tilemap   : Tilemap,
-  entities  : SlotArray(Entity, 64),
-  camera    : Camera,
-  clock     : u64,
+    plumber   : Plumber,
+    tilemap   : Tilemap,
+    entities  : SlotArray(Entity, 64),
+    camera    : Camera,
+    clock     : u64,
 
-  particles : [3]SlotArray(Particle, 64),
+    particles : [3]SlotArray(Particle, 64),
+    
+    enemies   : SlotArray(Enemy, 64),
 }
 
 Camera :: struct {
-  using position : Vector2
+    using position : Vector2
 }
 
 init_application :: proc() -> bool {
-  if sdl.Init({.VIDEO, .AUDIO}) < 0 {
-    fmt.println("sdl could not initialize! sdl Error: %", sdl.GetError())
-    return false
-  }
-  sdl.SetHint(sdl.HINT_RENDER_SCALE_QUALITY, "0")
+    if sdl.Init({.VIDEO, .AUDIO}) < 0 {
+        fmt.println("sdl could not initialize! sdl Error: %", sdl.GetError())
+        return false
+    }
+    sdl.SetHint(sdl.HINT_RENDER_SCALE_QUALITY, "0")
 
-  if sdl_mixer.OpenAudio(44100, sdl.AUDIO_S16SYS, 2, 512) < 0 {
-    fmt.println("Unable to open audio: %s\n", sdl.GetError())
-    return false
-  }
+    if sdl_mixer.OpenAudio(44100, sdl.AUDIO_S16SYS, 2, 512) < 0 {
+        fmt.println("Unable to open audio: %s\n", sdl.GetError())
+        return false
+    }
 
-	if sdl_image.Init({.PNG}) == nil {
-		fmt.println("sdl.image could not initialize! sdl.mage Error: %\n", sdl_image.GetError())
-		return false
-	}
+    if sdl_image.Init({.PNG}) == nil {
+        fmt.println("sdl.image could not initialize! sdl.mage Error: %\n", sdl_image.GetError())
+        return false
+    }
 
-  window = sdl.CreateWindow(
-		WINDOW_TITLE, sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED,
-		WINDOW_WIDTH, WINDOW_HEIGHT, sdl.WINDOW_SHOWN,
-  )
-	if window == nil {
-		fmt.println("Window could not be created! sdl Error: %s\n", sdl.GetError())
-		return false
-	}
+    window = sdl.CreateWindow(
+        WINDOW_TITLE, sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED,
+        WINDOW_WIDTH, WINDOW_HEIGHT, sdl.WINDOW_SHOWN,
+    )
+    if window == nil {
+        fmt.println("Window could not be created! sdl Error: %s\n", sdl.GetError())
+        return false
+    }
 
-  renderer = sdl.CreateRenderer(window, -1, {.ACCELERATED, .PRESENTVSYNC})
-	if renderer == nil {
-		fmt.println("Renderer could not be created! sdl Error: %s\n", sdl.GetError())
-		return false
-	}
+    renderer = sdl.CreateRenderer(window, -1, {.ACCELERATED, .PRESENTVSYNC})
+    if renderer == nil {
+        fmt.println("Renderer could not be created! sdl Error: %s\n", sdl.GetError())
+        return false
+    }
 
-  small_text_texture = load_texture(renderer, "data/gfx/8x8_text.png" ) or_return
-  plumber_texture    = load_texture(renderer, "data/gfx/plumber.png"  ) or_return
-  tiles_texture      = load_texture(renderer, "data/gfx/blocks.png"   ) or_return
-  entities_texture   = load_texture(renderer, "data/gfx/entities.png" ) or_return
-  decor_texture      = load_texture(renderer, "data/gfx/decor.png"    ) or_return
+    small_text_texture = load_texture(renderer, "data/gfx/8x8_text.png" ) or_return
+    plumber_texture    = load_texture(renderer, "data/gfx/plumber.png"  ) or_return
+    tiles_texture      = load_texture(renderer, "data/gfx/blocks.png"   ) or_return
+    entities_texture   = load_texture(renderer, "data/gfx/entities.png" ) or_return
+    decor_texture      = load_texture(renderer, "data/gfx/decor.png"    ) or_return
 
 
-	imgui.CHECKVERSION()
-	imgui.CreateContext(nil)
-	io := imgui.GetIO()
-	io.ConfigFlags += { .NavEnableKeyboard, .NavEnableGamepad }
+    imgui.CHECKVERSION()
+    imgui.CreateContext(nil)
+    io := imgui.GetIO()
+    io.ConfigFlags += { .NavEnableKeyboard, .NavEnableGamepad }
 
-	imgui_impl_sdl2.InitForSDLRenderer(window, renderer)
-	imgui_impl_sdlrenderer2.Init(renderer)
+    imgui_impl_sdl2.InitForSDLRenderer(window, renderer)
+    imgui_impl_sdlrenderer2.Init(renderer)
 
   return true
 }
 
 init_game :: proc() -> bool {
-  {
-    using GameState.active_level
-
-    init_plumber_controller(&plumber)
-    plumber.position = { SCREEN_TILE_WIDTH / 2, SCREEN_TILE_HEIGHT / 2 }
-    plumber.scale = { 1, 1 }
-  
     load_tile_info()
-  
     init_plumber_physics()
-  
-    init_tilemap(&tilemap)
-  
+    init_enemy_templates()
+
+    {
+        using EditorState
+        selected_type = Tile
+        init_plumber_controller(&editting_level.plumber)
+        init_tilemap(&editting_level.tilemap)
+        editting_level.plumber.position = { SCREEN_TILE_WIDTH / 2, SCREEN_TILE_HEIGHT - 3 }
+        editting_level.plumber.scale = { 1, 1 }
+    }
+    
+    copy_editor_level_to_active_level()
+
+    return true
+}
+
+copy_editor_level_to_active_level :: proc() {
+    GameState.active_level = EditorState.editting_level
+
     position_x : f32 = 0.0
     for position_x < LEVEL_TILE_WIDTH {
-      position_x += f32(SCREEN_TILE_WIDTH) * (rand.float32() * 0.5 + 0.5)
-      using GameState.active_level
-      slot := get_next_slot(&particles[1])
-      slot.occupied = true
-      slot.data = {
-        velocity = { -(0.01 + rand.float32() * 0.05), 0 },
-        position = { position_x, rand.float32() * 4 },
-        scale    = { 1, 1 },
-        animation = {
-        frame_count = 1,
-          frames = {
-            {
-              clip = { 0, 0, 48, 24 },
+        position_x += f32(SCREEN_TILE_WIDTH) * (rand.float32() * 0.5 + 0.5)
+        using GameState.active_level
+        slot := get_next_slot(&particles[1])
+        slot.occupied = true
+        slot.data = {
+            velocity = { -(0.01 + rand.float32() * 0.05), 0 },
+            position = { position_x, rand.float32() * 4 },
+            scale    = { 1, 1 },
+            animation = {
+            frame_count = 1,
+                frames = {
+                    {
+                      clip = { 0, 0, 48, 24 },
+                    },
+                    {}, {}, {}, {}, {}, {}, {},
+                },
             },
-            {}, {}, {}, {}, {}, {}, {},
-          },
-        },
-        texture  = decor_texture.sdl_texture,
-      }
+            texture  = decor_texture.sdl_texture,
+        }
     }
-  }
-
-  {
-    using EditorState
-    selected_type = Tile
-    init_tilemap(&editting_level.tilemap)
-    editting_level.plumber.position = { SCREEN_TILE_WIDTH / 2, SCREEN_TILE_HEIGHT / 2 }
-    editting_level.plumber.scale = { 1, 1 }
-  }
-
-  return true
 }
 
 update_game :: proc() {
-  using GameState.active_level
-  
-  update_plumber(&plumber)
-  
-  for &slot, i in entities.slots {
-    if slot.occupied {
-      if !update_entity(&slot.data) {
-        slot.occupied = {}
-      }
-    }
-  }
-  
-  for &bank in particles {
-    for &slot in bank.slots {
-      if slot.occupied {
-        if !update_particle(&slot.data) { 
-          slot.occupied = {}
-        }
-      }
-    } 
-  }
-
-  @static cloud_clock : int
-  cloud_clock -= 1
-  if cloud_clock <= 0 {
-    cloud_clock = int(rand.int31_max(480) + 60)
     using GameState.active_level
-    slot := get_next_slot(&particles[1])
-    slot.occupied = true
-    slot.data = {
-      velocity  = { -(0.01 + rand.float32() * 0.05), 0 },
-      position  = { LEVEL_TILE_WIDTH + 2, rand.float32() * 4 },
-      scale     = { 1, 1 },
-      texture   = decor_texture.sdl_texture,
-      animation = {
-        frame_count = 1,
-        frames = {
-          {
-            clip = { 0, 0, 48, 24 },
-          },
-          {}, {}, {}, {}, {}, {}, {},
-        },
-      },
+    
+    if GameState.powerup_state_change_anim.timer > 0 {
+        GameState.powerup_state_change_anim.timer -= 1
+        if ((GameState.powerup_state_change_anim.timer * 5 / POWERUP_STATE_CHANGE_TIME) & 1) == 0 {
+            GameState.active_level.plumber.powerup = GameState.powerup_state_change_anim.to
+        } else {
+            GameState.active_level.plumber.powerup = GameState.powerup_state_change_anim.from
+        }
+        return // skip updating game while player powerup animation is playing
     }
-  }
+    else if GameState.paused && program_controller[ProgramInputKeys.STEP_FRAME].state != KEYSTATE_PRESSED {
+        return // skip updating game if the game is paused
+    }
+    
+    update_plumber(&plumber)
+    
+    for &slot, i in enemies.slots {
+        if slot.occupied {
+            if !update_enemy(&slot.data) {
+                slot.occupied = {}
+    }}}
+    
+    for &slot, i in entities.slots {
+        if slot.occupied {
+            if !update_entity(&slot.data) {
+                slot.occupied = {}
+    }}}
+    
+    for &bank in particles {
+        for &slot in bank.slots {
+            if slot.occupied {
+                if !update_particle(&slot.data) {
+                    slot.occupied = {}
+    }}}}
+
+    // spawn new clouds
+    @static cloud_clock : int
+    cloud_clock -= 1
+    if cloud_clock <= 0 {
+        cloud_clock = int(rand.int31_max(480) + 60)
+        using GameState.active_level
+        slot := get_next_slot(&particles[1])
+        slot.occupied = true
+        slot.data = {
+            velocity  = { -(0.01 + rand.float32() * 0.05), 0 },
+            position  = { LEVEL_TILE_WIDTH + 2, rand.float32() * 4 },
+            scale     = { 1, 1 },
+            texture   = decor_texture.sdl_texture,
+            animation = {
+                frame_count = 1,
+                frames = {
+                    {
+                      clip = { 0, 0, 48, 24 },
+                    },
+                    {}, {}, {}, {}, {}, {}, {},
+                },
+            },
+        }
+    }
 }
 
 render_game :: proc() {
@@ -263,6 +277,10 @@ render_game :: proc() {
     }
     
     render_plumber(&plumber, TILE_RENDER_SIZE, -camera.position)
+    
+    for &slot in enemies.slots {
+        if slot.occupied do render_enemy(slot.data, TILE_RENDER_SIZE, -camera.position)
+    }
     
     for &slot in entities.slots {
         if slot.occupied do render_entity(slot.data, TILE_RENDER_SIZE, -camera.position)
@@ -325,30 +343,7 @@ main :: proc() {
       GameState.paused = !GameState.paused
     }
     if program_controller[ProgramInputKeys.RESET].state == KEYSTATE_PRESSED {
-      GameState.active_level = EditorState.editting_level
-      init_plumber_controller(&GameState.active_level.plumber)
-      position_x : f32 = 0.0
-      for position_x < LEVEL_TILE_WIDTH {
-        position_x += f32(SCREEN_TILE_WIDTH) * (rand.float32() * 0.5 + 0.5)
-        using GameState.active_level
-        slot := get_next_slot(&particles[1])
-        slot.occupied = true
-        slot.data = {
-          velocity = { -(0.01 + rand.float32() * 0.05), 0 },
-          position = { position_x, rand.float32() * 4 },
-          scale    = { 1, 1 },
-          animation = {
-            frame_count = 1,
-            frames = {
-              {
-                clip     = { 0, 0, 48, 24 },
-              },
-              {}, {}, {}, {}, {}, {}, {},
-            },
-          },
-          texture = decor_texture.sdl_texture,
-        }
-      }
+        copy_editor_level_to_active_level()
     }
 
     sdl.SetRenderDrawColor(renderer, u8(sky_color.r * 255), u8(sky_color.g * 255), u8(sky_color.b * 255), u8(sky_color.a * 255))
@@ -361,17 +356,7 @@ main :: proc() {
     imgui_update()
     switch(program_mode) {
       case .GAME:
-        if GameState.powerup_state_change_anim.timer > 0 {
-            GameState.powerup_state_change_anim.timer -= 1
-            if ((GameState.powerup_state_change_anim.timer * 5 / POWERUP_STATE_CHANGE_TIME) & 1) == 0 {
-                GameState.active_level.plumber.powerup = GameState.powerup_state_change_anim.to
-            } else {
-                GameState.active_level.plumber.powerup = GameState.powerup_state_change_anim.from
-            }
-        }
-        else if !GameState.paused || program_controller[ProgramInputKeys.STEP_FRAME].state == KEYSTATE_PRESSED {
-          update_game()
-        }
+        update_game()
         render_game()
       case .EDITOR:
         update_editor()

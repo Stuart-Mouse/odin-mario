@@ -54,7 +54,7 @@ Entity :: struct #raw_union {
     coin     : Coin,
 }
 
-init_entity :: proc(entity: ^Entity, type: Entity_Type, flags: Entity_Flags = {}, hint_dir: Direction = .R) {
+init_entity :: proc(entity: ^Entity, type: Entity_Type, flags: Entity_Flags = {}, hint_dir: Direction = .L) {
     if entity == nil do return 
     
     entity.base = {
