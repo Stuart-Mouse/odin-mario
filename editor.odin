@@ -43,7 +43,6 @@ EditorState : struct {
     
     selection_rect      : Vector2,
     
-    
     editting_level      : Level_Data,
 }
 
@@ -143,17 +142,6 @@ update_editor :: proc() {
                 }
             }
         }
-        else if selected_type == Enemy && Mouse.left == KEYSTATE_PRESSED {
-            slot := get_next_empty_slot(&editting_level.enemies)
-            if slot != nil {
-                slot.occupied = true
-                slot.data = selected_enemy
-                slot.data.position = {
-                    snap_to_nearest_unit(mouse_tile_position.x, 0.5),
-                    snap_to_nearest_unit(mouse_tile_position.y, 0.5),
-                }
-            }
-        }
     }
 
     if bool(editor_controller[SET_PLAYER_START].state & KEYSTATE_PRESSED) {
@@ -172,10 +160,10 @@ update_editor :: proc() {
             e     := &slot.data
             frect := get_entity_collision_rect(e^)
             if is_point_within_frect(mouse_tile_position, frect) {
-                slot = {}
-                // clicked_entity = true
-                // entity_details_popup_target = &slot
-                // imgui.OpenPopup("Entity Details Popup", {})
+                // slot = {}
+                clicked_entity = true
+                entity_details_popup_target = &slot
+                imgui.OpenPopup("Entity Details Popup", {})
             }
         }
         if !clicked_entity {
@@ -206,18 +194,18 @@ update_editor :: proc() {
         imgui.EndPopup()
     }
 
-    // if imgui.BeginPopup("Entity Details Popup", {}) {
-    //     if entity_details_popup_target == nil {
-    //       imgui.CloseCurrentPopup()
-    //     } else {
-    //         // imgui.TreeNodeAny("Entity", entity_details_popup_target.data)
-    //         if imgui.Button("Delete") {
-    //             entity_details_popup_target^ = {}
-    //             entity_details_popup_target = nil
-    //         }
-    //     }
-    //     imgui.EndPopup()
-    // }
+    if imgui.BeginPopup("Entity Details Popup", {}) {
+        if entity_details_popup_target == nil {
+          imgui.CloseCurrentPopup()
+        } else {
+            imgui.TreeNodeAny("Entity", entity_details_popup_target.data)
+            if imgui.Button("Delete") {
+                entity_details_popup_target^ = {}
+                entity_details_popup_target = nil
+            }
+        }
+        imgui.EndPopup()
+    }
 
     if editor_controller[TOGGLE_TILE_PICKER].state == KEYSTATE_PRESSED {
         show_tile_picker = !show_tile_picker
@@ -256,131 +244,32 @@ update_editor :: proc() {
             }
         }
         
-        // imgui.SeparatorText("Enemies")
-        // for &et in enemy_templates {
-        //     clip := get_enemy_template_icon_clip(et, int(img_size.x), int(img_size.y))
-        //     img_uv0, img_uv1 = texture_clip_to_uv_pair(clip, entities_texture)
-        //     if imgui.ImageButtonEx(strings.clone_to_cstring(et.name, context.temp_allocator), entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
-        //         selected_type = Enemy
-        //         init_enemy(&selected_enemy, &et)
-        //     }
-        // }
+        imgui.SeparatorText("Enemies")
+        for et, et_i in enemy_templates {
+            clip := get_enemy_template_icon_clip(et, int(img_size.x), int(img_size.y))
+            img_uv0, img_uv1 = texture_clip_to_uv_pair(clip, entities_texture)
+            
+            if et_i % 8 != 0 do imgui.SameLine()
+            if imgui.ImageButtonEx(strings.clone_to_cstring(et.name, context.temp_allocator), entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
+                selected_type = Entity
+                init_entity(&selected_entity, .ENEMY)
+                init_enemy(&selected_entity.enemy, et_i)
+            }
+        }
         
-        imgui.SeparatorText("Entities")
-        img_uv0  = {  0,  0 }
-        img_uv1  = { 
-            16 / f32(entities_texture.width ), 
-            16 / f32(entities_texture.height),
+        imgui.SeparatorText("Items")
+        for it, it_i in Item_Type {
+            clip := get_item_icon_clip(it, int(img_size.x), int(img_size.y))
+            img_uv0, img_uv1 = texture_clip_to_uv_pair(clip, entities_texture)
+            
+            if it_i % 8 != 0 do imgui.SameLine()
+            if imgui.ImageButtonEx(strings.unsafe_string_to_cstring(fmt.tprintf("%v\x00", it)), entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
+                selected_type = Entity
+                init_entity(&selected_entity, .ITEM)
+                init_item(&selected_entity.item, it)
+            }
         }
-        if imgui.ImageButtonEx("Goomba", entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
-            selected_type = Entity
-            init_entity(&selected_entity, .GOOMBA)
-        }
-        img_size = { 16, 16 }
-        img_uv0  = { 
-            32 / f32(entities_texture.width ), 
-             0 / f32(entities_texture.height),
-        }
-        img_uv1  = { 
-            48 / f32(entities_texture.width ), 
-            16 / f32(entities_texture.height),
-        }
-        imgui.SameLine()
-        if imgui.ImageButtonEx("Mushroom", entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
-            selected_type = Entity
-            init_entity(&selected_entity, .MUSHROOM)
-        }
-        img_uv0  = { 
-            64 / f32(entities_texture.width ), 
-            40 / f32(entities_texture.height),
-        }
-        img_uv1  = { 
-            80 / f32(entities_texture.width ), 
-            56 / f32(entities_texture.height),
-        }
-        imgui.SameLine()
-        if imgui.ImageButtonEx("Shell", entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
-            selected_type = Entity
-            init_entity(&selected_entity, .SHELL)
-        }
-        img_uv0  = { 
-             0 / f32(entities_texture.width ), 
-            16 / f32(entities_texture.height),
-        }
-        img_uv1  = { 
-            16 / f32(entities_texture.width ), 
-            32 / f32(entities_texture.height),
-        }
-        imgui.SameLine()
-        if imgui.ImageButtonEx("Beetle", entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
-            selected_type = Entity
-            init_entity(&selected_entity, .BEETLE)
-        }
-        img_uv0  = { 
-            f32(koopa_animation_clips[0].x) / f32(entities_texture.width ), 
-            f32(koopa_animation_clips[0].y) / f32(entities_texture.height),
-        }
-        img_uv1  = { 
-            f32(koopa_animation_clips[0].x + 16) / f32(entities_texture.width ), 
-            f32(koopa_animation_clips[0].y + 16) / f32(entities_texture.height),
-        }
-        imgui.SameLine()
-        if imgui.ImageButtonEx("Koopa", entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
-            selected_type = Entity
-            init_entity(&selected_entity, .KOOPA)
-        }
-        img_uv0  = { 
-            f32(koopa_animation_clips[0].x     ) / f32(entities_texture.width ), 
-            f32(koopa_animation_clips[0].y + 24) / f32(entities_texture.height),
-        }
-        img_uv1  = { 
-            f32(koopa_animation_clips[0].x + 16) / f32(entities_texture.width ), 
-            f32(koopa_animation_clips[0].y + 40) / f32(entities_texture.height),
-        }
-        imgui.SameLine()
-        if imgui.ImageButtonEx("Red Koopa", entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
-            selected_type = Entity
-            init_entity(&selected_entity, .KOOPA, {.DONT_WALK_OFF_LEDGES})
-        }
-        img_uv0  = { 
-            f32(koopa_animation_clips[0].x + 32) / f32(entities_texture.width ), 
-            f32(koopa_animation_clips[0].y     ) / f32(entities_texture.height),
-        }
-        img_uv1  = { 
-            f32(koopa_animation_clips[0].x + 48) / f32(entities_texture.width ), 
-            f32(koopa_animation_clips[0].y + 16) / f32(entities_texture.height),
-        }
-        imgui.SameLine()
-        if imgui.ImageButtonEx("Winged Koopa", entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
-            selected_type = Entity
-            init_entity(&selected_entity, .KOOPA, {.WINGED})
-        }
-        img_uv0  = { 
-            f32(koopa_animation_clips[0].x + 32) / f32(entities_texture.width ), 
-            f32(koopa_animation_clips[0].y + 24) / f32(entities_texture.height),
-        }
-        img_uv1  = { 
-            f32(koopa_animation_clips[0].x + 48) / f32(entities_texture.width ), 
-            f32(koopa_animation_clips[0].y + 40) / f32(entities_texture.height),
-        }
-        imgui.SameLine()
-        if imgui.ImageButtonEx("Winged Red Koopa", entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
-            selected_type = Entity
-            init_entity(&selected_entity, .KOOPA, {.DONT_WALK_OFF_LEDGES, .WINGED})
-        }
-        img_uv0  = { 
-            48 / f32(entities_texture.width ), 
-            16 / f32(entities_texture.height),
-        }
-        img_uv1  = { 
-            64 / f32(entities_texture.width ), 
-            32 / f32(entities_texture.height),
-        }
-        imgui.SameLine()
-        if imgui.ImageButtonEx("Spiny", entities_texture.sdl_texture, img_size, img_uv0, img_uv1, {}, { 1, 1, 1, 1 }) {
-            selected_type = Entity
-            init_entity(&selected_entity, .SPINY)
-        }
+
         imgui.End()
     }
 }
@@ -404,10 +293,7 @@ render_editor :: proc() {
     render_tilemap(&editting_level.tilemap, EDITOR_TILE_UNIT, -camera.position)
     render_plumber(&editting_level.plumber, EDITOR_TILE_UNIT, -camera.position)
     for &slot in editting_level.entities.slots {
-        if slot.occupied do render_entity(slot.data, EDITOR_TILE_UNIT, -camera.position)
-    }
-    for &slot in editting_level.enemies.slots {
-        if slot.occupied do render_enemy(slot.data, EDITOR_TILE_UNIT, -camera.position)
+        if slot.occupied do render_entity(&slot.data, EDITOR_TILE_UNIT, -camera.position)
     }
     render_grid(
         { i32(EDITOR_TILE_UNIT), i32(EDITOR_TILE_UNIT) }, 
@@ -421,20 +307,26 @@ render_editor :: proc() {
         -camera.position, 
     )
     
-    if selected_type == Tile {
-        if selected_tile.id != 0 {
-            tri := get_tile_render_info(selected_tile)
-            sdl.SetTextureColorMod(tri.texture, tri.color_mod.r, tri.color_mod.g, tri.color_mod.b)
-            sdl.SetTextureAlphaMod(tri.texture, 0x88)
-            sdl.RenderCopyF(renderer, tri.texture, &tri.clip, &mouse_tile_rect)
-        }
-        sdl.SetRenderDrawColor(renderer, 0xff, 0xff, 0xff, 0xff)
-        sdl.RenderDrawRectF(renderer, &mouse_tile_rect)
-    } else if selected_type == Entity {
-        render_entity(selected_entity, EDITOR_TILE_UNIT, {
-            snap_to_nearest_unit(mouse_tile_position.x, 0.5),
-            snap_to_nearest_unit(mouse_tile_position.y, 0.5),
-        } - camera.position)
+    switch selected_type {
+        case Tile:
+            if selected_tile.id != 0 {
+                tri := get_tile_render_info(selected_tile)
+                sdl.SetTextureColorMod(tri.texture, tri.color_mod.r, tri.color_mod.g, tri.color_mod.b)
+                sdl.SetTextureAlphaMod(tri.texture, 0x88)
+                sdl.RenderCopyF(renderer, tri.texture, &tri.clip, &mouse_tile_rect)
+            }
+            sdl.SetRenderDrawColor(renderer, 0xff, 0xff, 0xff, 0xff)
+            sdl.RenderDrawRectF(renderer, &mouse_tile_rect)
+        case Entity: 
+            render_entity(&selected_entity, EDITOR_TILE_UNIT, {
+                snap_to_nearest_unit(mouse_tile_position.x, 0.5),
+                snap_to_nearest_unit(mouse_tile_position.y, 0.5),
+            } - camera.position, alpha_mod = 0.5)
+        // case Enemy: 
+        //     render_enemy(&selected_enemy, EDITOR_TILE_UNIT, {
+        //         snap_to_nearest_unit(mouse_tile_position.x, 0.5),
+        //         snap_to_nearest_unit(mouse_tile_position.y, 0.5),
+        //     } - camera.position, alpha_mod = 0.5)
     }
 }
 

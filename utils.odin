@@ -175,9 +175,9 @@ get_next_empty_slot :: proc(using arr: ^SlotArray($T, $N)) -> ^Slot(T) {
 	return nil
 }
 
-get_next_slot :: proc(using arr: ^SlotArray($T, $N)) -> ^Slot(T) {
-  current = (current + 1) % len(slots)
-  return &slots[current]
+get_next_slot :: proc(arr: ^SlotArray($T, $N)) -> ^Slot(T) {
+  arr.current = (arr.current + 1) % len(arr.slots)
+  return &arr.slots[arr.current]
 }
 
 snap_to_nearest_unit :: proc(point: f32, unit: f32) -> f32 {

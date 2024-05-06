@@ -68,13 +68,11 @@ GameState : struct {
 Level_Data :: struct {
     plumber   : Plumber,
     tilemap   : Tilemap,
-    entities  : SlotArray(Entity, 64),
+    entities  : SlotArray(Entity, 1024),
     camera    : Camera,
     clock     : u64,
 
     particles : [3]SlotArray(Particle, 64),
-    
-    enemies   : SlotArray(Enemy, 64),
 }
 
 Camera :: struct {
@@ -135,6 +133,7 @@ init_game :: proc() -> bool {
     load_tile_info()
     init_plumber_physics()
     init_enemy_templates()
+    init_item_animations()
 
     {
         using EditorState
@@ -180,26 +179,25 @@ copy_editor_level_to_active_level :: proc() {
 update_game :: proc() {
     using GameState.active_level
     
-    if GameState.powerup_state_change_anim.timer > 0 {
-        GameState.powerup_state_change_anim.timer -= 1
-        if ((GameState.powerup_state_change_anim.timer * 5 / POWERUP_STATE_CHANGE_TIME) & 1) == 0 {
-            GameState.active_level.plumber.powerup = GameState.powerup_state_change_anim.to
-        } else {
-            GameState.active_level.plumber.powerup = GameState.powerup_state_change_anim.from
+    {
+        using GameState.powerup_state_change_anim
+        
+        if timer > 0 {
+            timer -= 1
+            if ((timer * 5 / POWERUP_STATE_CHANGE_TIME) & 1) == 0 {
+                plumber.powerup = to
+            } else {
+                plumber.powerup = from
+            }
+            return // skip updating game while player powerup animation is playing
         }
-        return // skip updating game while player powerup animation is playing
-    }
-    else if GameState.paused && program_controller[ProgramInputKeys.STEP_FRAME].state != KEYSTATE_PRESSED {
-        return // skip updating game if the game is paused
+        else if GameState.paused && program_controller[ProgramInputKeys.STEP_FRAME].state != KEYSTATE_PRESSED {
+            return // skip updating game if the game is paused
+        }
     }
     
     update_plumber(&plumber)
     
-    for &slot, i in enemies.slots {
-        if slot.occupied {
-            if !update_enemy(&slot.data) {
-                slot.occupied = {}
-    }}}
     
     for &slot, i in entities.slots {
         if slot.occupied {
@@ -278,12 +276,8 @@ render_game :: proc() {
     
     render_plumber(&plumber, TILE_RENDER_SIZE, -camera.position)
     
-    for &slot in enemies.slots {
-        if slot.occupied do render_enemy(slot.data, TILE_RENDER_SIZE, -camera.position)
-    }
-    
     for &slot in entities.slots {
-        if slot.occupied do render_entity(slot.data, TILE_RENDER_SIZE, -camera.position)
+        if slot.occupied do render_entity(&slot.data, TILE_RENDER_SIZE, -camera.position)
     }
     
     for &slot in particles[0].slots {
@@ -409,7 +403,7 @@ imgui_update :: proc() {
 
       if imgui.CollapsingHeader("Other", {}) {
         imgui.ColorEdit4("Sky Color", &sky_color, {})
-        imgui.SliderFloat("Goomba Walk Speed", &GOOMBA_WALK_SPEED, 0, 0.4) 
+        // imgui.SliderFloat("Goomba Walk Speed", &GOOMBA_WALK_SPEED, 0, 0.4) 
       }
       if imgui.CollapsingHeader("Save / Load Level", {}) {
         @static level_path_buf : [64] u8 

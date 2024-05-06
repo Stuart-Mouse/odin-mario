@@ -117,11 +117,10 @@ bump_tile :: proc(tilemap: ^Tilemap, tile_index: int, bump_type: Tile_Bump_Type,
         tile.bump_clock = TILE_BUMP_TIME
 
         if .CONTAINER in ti.collision.flags && tile.contains != nil {
-            if tile.contains == .COIN && tile.contains_count == 1 {
-                plumber_add_coin(&GameState.active_level.plumber)
-                spawn_coin_particle(tile_position + {0.5, 0})
-            }
-            else {
+            // if tile.contains == .COIN && tile.contains_count == 1 {
+            //     plumber_add_coins(&GameState.active_level.plumber, 1, tile_position + {0.5, 0})
+            // }
+            // else {
                 max_spread_count : int : 7
                 excess_count     := max(0, int(tile.contains_count) - max_spread_count)
                 corrected_count  := min(int(tile.contains_count) - 1, max_spread_count)
@@ -134,12 +133,12 @@ bump_tile :: proc(tilemap: ^Tilemap, tile_index: int, bump_type: Tile_Bump_Type,
                     slot := get_next_empty_slot(&GameState.active_level.entities)
                     if slot == nil do break
                     
-                    init_entity(&slot.data, tile.contains, hint_dir = (vel_scalar < 0) ? .L : .R)
+                    init_entity(&slot.data, tile.contains)
                     slot.data.base.position = tile_position + { 0.5, -0.5 }
                     slot.data.base.velocity = { vel_spread * vel_scalar, -(0.2 + bonus_height * (0.5 - abs(vel_scalar))) }
                     slot.occupied = true
                 }
-            }
+            // }
             tile.contains = nil
             tile.flags |= {.EMPTIED}
         }

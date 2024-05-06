@@ -81,22 +81,23 @@ POWERUP_STATE_CHANGE_TIME :: 50
 POWERUP_LOST_I_FRAMES :: 60
 
 Plumber :: struct {
-  position_prev : Vector2,
-  position      : Vector2,
-  velocity      : Vector2,
-  scale         : Vector2,
-  controller    : [Plumber_Input_Keys.COUNT] InputKey,
-  powerup       : Powerup,
-  coins         : int,
-  score         : int,
-  bounce_combo  : int,
-  lives         : int,
+  position_prev   : Vector2,
+  position        : Vector2,
+  velocity        : Vector2,
+  ground_velocity : Vector2,
+  scale           : Vector2,
+  controller      : [Plumber_Input_Keys.COUNT] InputKey,
+  powerup         : Powerup,
+  coins           : int,
+  score           : int,
+  bounce_combo    : int,
+  lives           : int,
   
-  i_frames      : int,
+  i_frames        : int,
 
-  anim_state    : Plumber_Animation_States,
-  anim_frame    : f32,
-  flags         : Plumber_Flags,
+  anim_state      : Plumber_Animation_States,
+  anim_frame      : f32,
+  flags           : Plumber_Flags,
 
   coyote_clock  : i32,
 
@@ -114,6 +115,7 @@ change_plumber_powerup_state :: proc(plumber: ^Plumber, powerup: Powerup) {
     if powerup < Powerup(0) || plumber.powerup == powerup do return
     if plumber.powerup  < .SUPER && powerup >= .SUPER do plumber.position.y -= 0.5
     if plumber.powerup >= .SUPER && powerup  < .SUPER do plumber.position.y += 0.5
+    plumber.flags |= {.ON_GROUND}
     
     GameState.powerup_state_change_anim.from  = plumber.powerup
     plumber.powerup = powerup
@@ -134,160 +136,164 @@ init_plumber_controller :: proc(using plumber: ^Plumber) {
 }
 
 update_plumber :: proc(using plumber: ^Plumber) {
-  using Plumber_Input_Keys
-  using Plumber_Physics
+    using Plumber_Input_Keys
+    using Plumber_Physics
 
-  update_input_controller(controller[:])
+    update_input_controller(controller[:])
 
-  if controller[POWERDOWN].state == KEYSTATE_PRESSED {
-    change_plumber_powerup_state(plumber, max(powerup - Powerup(1), Powerup.NONE))
-  }
-  if controller[POWERUP].state == KEYSTATE_PRESSED {
-    change_plumber_powerup_state(plumber, min(powerup + Powerup(1), Powerup.FIRE))
-  }
-
-  position_prev = position
-
-  i_frames = max(i_frames - 1, 0)
-
-  // do player physics
-  can_jump := false
-  gravity  := fall_gravity
-  
-  coyote_clock += 1
-
-  if .ON_GROUND in flags {
-    can_jump     = true
-    coyote_clock = 0
-
-    move_accel := walk_accel
-    move_speed := walk_speed
-    decel          := release_decel // amount of deceleration to apply
-    decel_to_speed := walk_speed    // what speed to decelerate the player towards
-    if bool(controller[RUN].state & KEYSTATE_PRESSED) {
-      move_accel = run_accel
-      move_speed = run_speed
-      decel_to_speed = run_speed
+    if controller[POWERDOWN].state == KEYSTATE_PRESSED {
+        change_plumber_powerup_state(plumber, max(powerup - Powerup(1), Powerup.NONE))
+    }
+    if controller[POWERUP].state == KEYSTATE_PRESSED {
+        change_plumber_powerup_state(plumber, min(powerup + Powerup(1), Powerup.FIRE))
     }
 
-    // if the player is crouching, then they cannot apply any acceleration
-    if powerup != .NONE && bool(controller[DOWN].state & KEYSTATE_PRESSED) {
-      flags |=  { .CROUCHING }
-      if bool(controller[RIGHT].state & KEYSTATE_PRESSED) {
-        flags &= ~{.FACING_LEFT}
-      }
-      else if bool(controller[LEFT].state & KEYSTATE_PRESSED) {
-        flags |= {.FACING_LEFT}
-      }
-      decel_to_speed = 0
-    } else {
-      flags &= ~{ .CROUCHING }
-      if bool(controller[RIGHT].state & KEYSTATE_PRESSED) {
-        flags &= ~{.FACING_LEFT}
-        if velocity.x >= 0 {
-          applicable_accel := max(0, move_speed - velocity.x)
-          velocity.x += min(move_accel, applicable_accel)
-        } else {
-          velocity.x += skid_decel
+    position_prev = position
+
+    i_frames = max(i_frames - 1, 0)
+
+    // do player physics
+    can_jump := false
+    gravity  := fall_gravity
+    
+    coyote_clock += 1
+
+    if .ON_GROUND in flags {
+        can_jump     = true
+        coyote_clock = 0
+
+        move_accel := walk_accel
+        move_speed := walk_speed
+        decel          := release_decel // amount of deceleration to apply
+        decel_to_speed := walk_speed    // what speed to decelerate the player towards
+        if bool(controller[RUN].state & KEYSTATE_PRESSED) {
+            move_accel = run_accel
+            move_speed = run_speed
+            decel_to_speed = run_speed
         }
-      }
-      else if bool(controller[LEFT].state & KEYSTATE_PRESSED) {
-        flags |= {.FACING_LEFT}
-        if velocity.x <= 0 {
-          applicable_accel := max(0, move_speed + velocity.x)
-          velocity.x -= min(move_accel, applicable_accel)
+
+        // if the player is crouching, then they cannot apply any acceleration
+        if powerup != .NONE && bool(controller[DOWN].state & KEYSTATE_PRESSED) {
+            flags |=  { .CROUCHING }
+            if bool(controller[RIGHT].state & KEYSTATE_PRESSED) {
+                flags &= ~{.FACING_LEFT}
+            }
+            else if bool(controller[LEFT].state & KEYSTATE_PRESSED) {
+                flags |= {.FACING_LEFT}
+            }
+            decel_to_speed = 0
         } else {
-          velocity.x -= skid_decel
+            flags &= ~{ .CROUCHING }
+            if bool(controller[RIGHT].state & KEYSTATE_PRESSED) {
+                flags &= ~{.FACING_LEFT}
+                if velocity.x >= 0 {
+                    applicable_accel := max(0, move_speed - velocity.x)
+                    velocity.x += min(move_accel, applicable_accel)
+                } else {
+                    velocity.x += skid_decel
+                }
+            }
+            else if bool(controller[LEFT].state & KEYSTATE_PRESSED) {
+                flags |= {.FACING_LEFT}
+                if velocity.x <= 0 {
+                    applicable_accel := max(0, move_speed + velocity.x)
+                    velocity.x -= min(move_accel, applicable_accel)
+                } else {
+                    velocity.x -= skid_decel
+                }
+            }
+            else { // neither direction pressed
+                decel = (.FACING_LEFT in flags) != (velocity.x < 0) ?\
+                    skid_decel : release_decel
+                decel_to_speed = 0
+            }
         }
-      }
-      else { // neither direction pressed
-        decel = (.FACING_LEFT in flags) != (velocity.x < 0) ?\
-          skid_decel : release_decel
-        decel_to_speed = 0
-      }
+
+      apply_decel : f32
+      if      velocity.x >  decel_to_speed do apply_decel = -min(velocity.x - decel_to_speed, decel)
+      else if velocity.x < -decel_to_speed do apply_decel =  min(decel_to_speed - velocity.x, decel)
+      velocity.x += apply_decel
+    }
+    else {
+        if velocity.y < 0 do gravity = jump_gravity
+        if coyote_clock < coyote_frames do can_jump = true
+
+        move_accel := air_accel
+        move_speed := walk_speed
+        if bool(controller[RUN].state & KEYSTATE_PRESSED) {
+            move_speed = run_speed
+        }
+        if bool(controller[JUMP].state == KEYSTATE_RELEASED) {
+            if velocity.y < -jump_release_force {
+              velocity.y = -jump_release_force
+            }
+        }
+
+        if bool(controller[RIGHT].state & KEYSTATE_PRESSED) {
+            applicable_accel := max(0, move_speed - velocity.x)
+            velocity.x += min(move_accel, applicable_accel)
+        }
+        else if bool(controller[LEFT].state & KEYSTATE_PRESSED) {
+            applicable_accel := max(0, move_speed + velocity.x)
+            velocity.x -= min(move_accel, applicable_accel)
+        }
+        else { // neither direction pressed
+            decel := air_decel
+            if      velocity.x >  decel do velocity.x -= decel
+            else if velocity.x < -decel do velocity.x += decel
+            else                        do velocity.x  = 0
+        }
     }
 
-    apply_decel : f32
-    if      velocity.x >  decel_to_speed do apply_decel = -min(velocity.x - decel_to_speed, decel)
-    else if velocity.x < -decel_to_speed do apply_decel =  min(decel_to_speed - velocity.x, decel)
-    velocity.x += apply_decel
-  }
-  else {
-    if velocity.y < 0 do gravity = jump_gravity
-    if coyote_clock < coyote_frames do can_jump = true
-
-    move_accel := air_accel
-    move_speed := walk_speed
-    if bool(controller[RUN].state & KEYSTATE_PRESSED) {
-      move_speed = run_speed
+    velocity.y += gravity
+    if controller[JUMP].state == KEYSTATE_PRESSED && can_jump {
+        jump_percent     := clamp(delerp(walk_speed, run_speed, abs(velocity.x)), 0, 1)
+        apply_jump_force := lerp(jump_force, run_jump_force, jump_percent)
+        velocity.y = -apply_jump_force
     }
-    if bool(controller[JUMP].state == KEYSTATE_RELEASED) {
-      if velocity.y < -jump_release_force {
-        velocity.y = -jump_release_force
-      }
+    
+    velocity.y = min(velocity.y, max_fall_speed)
+
+    position += velocity
+    if .ON_GROUND in flags {
+        position += ground_velocity
+        ground_velocity = 0
     }
 
-    if bool(controller[RIGHT].state & KEYSTATE_PRESSED) {
-      applicable_accel := max(0, move_speed - velocity.x)
-      velocity.x += min(move_accel, applicable_accel)
+    if powerup == .FIRE && .CROUCHING not_in flags && bool(controller[RUN].state == KEYSTATE_PRESSED) {
+        // slot := get_next_empty_slot(&GameState.active_level.entities)
+        // if slot != nil {
+        //     slot.occupied = true
+        //     init_entity(&slot.data, .FIREBALL)
+            
+        //     facing_mul : f32 = .FACING_LEFT in flags ? -1 : 1
+        //     slot.data.base.position = plumber.position + Vector2 { 0.5 * facing_mul, 0 }
+        //     slot.data.base.velocity = Vector2 { 0.2 * facing_mul, 0.1 }
+        // }
     }
-    else if bool(controller[LEFT].state & KEYSTATE_PRESSED) {
-      applicable_accel := max(0, move_speed + velocity.x)
-      velocity.x -= min(move_accel, applicable_accel)
+
+    flags &= ~{ .ON_GROUND }
+    size, offset := get_plumber_collision_size_and_offset(plumber^)
+
+    // keep player on the screen
+    {
+        camera := &GameState.active_level.camera
+
+        left_side   := position.x  + offset.x
+        right_side  := left_side   + size.x
+
+        if left_side < camera.x {
+            position.x = camera.x - offset.x
+            if velocity.y < 0 do velocity.x = 0
+        }
+        if right_side > LEVEL_TILE_WIDTH - 1 {
+            position.x = LEVEL_TILE_WIDTH - 1 + offset.x
+            if velocity.y > 0 do velocity.x = 0
+        }
+        if position.y > SCREEN_TILE_HEIGHT + 1 {
+            position.y -= (SCREEN_TILE_HEIGHT + 1)
+        }
     }
-    else { // neither direction pressed
-      decel := air_decel
-      if      velocity.x >  decel do velocity.x -= decel
-      else if velocity.x < -decel do velocity.x += decel
-      else                        do velocity.x  = 0
-    }
-  }
-
-  velocity.y += gravity
-  if controller[JUMP].state == KEYSTATE_PRESSED && can_jump {
-    jump_percent     := clamp(delerp(walk_speed, run_speed, abs(velocity.x)), 0, 1)
-    apply_jump_force := lerp(jump_force, run_jump_force, jump_percent)
-    velocity.y = -apply_jump_force
-  }
-  
-  velocity.y = min(velocity.y, max_fall_speed)
-
-  position += velocity
-
-  if powerup == .FIRE && .CROUCHING not_in flags && bool(controller[RUN].state == KEYSTATE_PRESSED) {
-    slot := get_next_empty_slot(&GameState.active_level.entities)
-    if slot != nil {
-      slot.occupied = true
-      init_entity(&slot.data, .FIREBALL)
-      
-      facing_mul : f32 = .FACING_LEFT in flags ? -1 : 1
-      slot.data.base.position = plumber.position + Vector2 { 0.5 * facing_mul, 0 }
-      slot.data.base.velocity = Vector2 { 0.2 * facing_mul, 0.1 }
-    }
-  }
-
-  flags &= ~{ .ON_GROUND }
-  size, offset := get_plumber_collision_size_and_offset(plumber^)
-
-  // keep player on the screen
-  {
-    camera := &GameState.active_level.camera
-
-    left_side   := position.x  + offset.x
-    right_side  := left_side   + size.x
-
-    if left_side < camera.x {
-      position.x = camera.x - offset.x
-      if velocity.y < 0 do velocity.x = 0
-    }
-    if right_side > camera.x + SCREEN_TILE_WIDTH - 1 {
-      position.x = camera.x + SCREEN_TILE_WIDTH - 1 + offset.x
-      if velocity.y > 0 do velocity.x = 0
-    }
-    if position.y > SCREEN_TILE_HEIGHT + 1 {
-      position.y -= (SCREEN_TILE_HEIGHT + 1)
-    }
-  }
 
     // do tilemap collision
     {
@@ -346,59 +352,22 @@ update_plumber :: proc(using plumber: ^Plumber) {
     }
 
 
-  // update camera
-  {
-    using GameState.active_level
+    // update camera
+    {
+        using GameState.active_level
 
-    right_cam_point := camera.x + 0.5 * SCREEN_TILE_WIDTH
-    if position.x > right_cam_point {
-      camera.x += position.x - right_cam_point
-      camera.x = min(camera.x, LEVEL_TILE_WIDTH - SCREEN_TILE_WIDTH)
-    }
-
-    left_cam_point := camera.x + 0.4 * SCREEN_TILE_WIDTH
-    if position.x < left_cam_point {
-      camera.x += position.x - left_cam_point
-      camera.x = max(camera.x, 0)
-    }
-  }
-
-  // determine animation state 
-  {
-    anim_state_prev := anim_state
-
-    if powerup != .NONE && .CROUCHING in flags {
-      anim_state = .CROUCH
-    }
-    else if .ON_GROUND not_in flags {
-      anim_state = .JUMP
-    } else {
-      if abs(velocity.x) < 0.01 {
-        anim_state = .STAND
-      }
-      else {
-        if (.FACING_LEFT in flags) != (velocity.x < 0) {
-          anim_state = .SKID
-        } else {
-          anim_state = .WALK
+        right_cam_point := camera.x + 0.5 * SCREEN_TILE_WIDTH
+        if position.x > right_cam_point {
+            camera.x += position.x - right_cam_point
+            camera.x = min(camera.x, LEVEL_TILE_WIDTH - SCREEN_TILE_WIDTH)
         }
-      }
-    }
 
-    // ensures that if state changes, we won't try to index an invalid animation clip
-    if anim_state != anim_state_prev {
-      anim_frame = 0
-    } else {
-      // if animation state is the same, then we want to perform some animation within the state
-      // since we may want to animate through clips differently depending on the animation state, we switch on the state
-      if anim_state == .WALK {
-        anim_frame += abs(velocity.x) * 4
-        if anim_frame >= cast(f32) len(Plumber_Animation_Clips[powerup][anim_state]) {
-          anim_frame = 0
+        left_cam_point := camera.x + 0.4 * SCREEN_TILE_WIDTH
+        if position.x < left_cam_point {
+            camera.x += position.x - left_cam_point
+            camera.x = max(camera.x, 0)
         }
-      }
     }
-  }
 }
 
 Plumber_Animation_States :: enum {
@@ -474,63 +443,100 @@ Plumber_Animation_Clips : [Powerup][Plumber_Animation_States][] sdl.Rect = {
 }
 
 render_plumber :: proc(using plumber: ^Plumber, tile_render_unit, offset: Vector2) {
-  camera := &GameState.active_level.camera
+    // determine animation state 
+    {
+        anim_state_prev := anim_state
 
-  size : Vector2 
-  switch powerup {
-    case .NONE:
-      size = { 1, 1 }
-    case .FIRE:
-      fallthrough
-    case .SUPER:
-      size = { 1, 2 }
-  }
+        if powerup != .NONE && .CROUCHING in flags {
+            anim_state = .CROUCH
+        }
+        else if .ON_GROUND not_in flags {
+            anim_state = .JUMP
+        } else {
+            if abs(velocity.x) < 0.01 {
+                anim_state = .STAND
+            }
+            else {
+                if (.FACING_LEFT in flags) != (velocity.x < 0) {
+                    anim_state = .SKID
+                } else {
+                    anim_state = .WALK
+                }
+            }
+        }
 
-  self_offset     := -(scale * size) / 2
-  render_position := (position + offset + self_offset) * tile_render_unit
-  render_size     := scale * size * tile_render_unit
-
-  clip: sdl.Rect
-  int_anim_frame := int(anim_frame)
-  if int(anim_state) >= 0 && int(anim_state) < len(Plumber_Animation_Clips[powerup]) &&
-     int_anim_frame  >= 0 && int_anim_frame  < len(Plumber_Animation_Clips[powerup][anim_state]) {
-      clip = Plumber_Animation_Clips[powerup][anim_state][int_anim_frame]
-  }
-
-  rect := sdl.Rect {
-    x = cast(i32) render_position.x,
-    y = cast(i32) render_position.y,
-    w = cast(i32) render_size.x, 
-    h = cast(i32) render_size.y,
-  }
-  
-  render_blinking := i_frames != 0 && ((i_frames * 8 / POWERUP_LOST_I_FRAMES) & 1) == 1
-  
-  if render_blinking do sdl.SetTextureAlphaMod(plumber_texture.sdl_texture, 0x22)
-  
-  flip : sdl.RendererFlip = .FACING_LEFT in flags ? .HORIZONTAL : .NONE
-  sdl.RenderCopyEx(renderer, plumber_texture.sdl_texture, &clip, &rect, 0, nil, flip)
-
-  if render_blinking do sdl.SetTextureAlphaMod(plumber_texture.sdl_texture, 0xFF)
-
-  // debug render collision points
-  if show_plumber_collision_points {
-    for dir in Direction(0)..<Direction(8) {
-      if dir in collision_results.push_out {
-        sdl.SetRenderDrawColor(renderer, 0xff, 0x00, 0x00, 0xff)
-      } else {
-        sdl.SetRenderDrawColor(renderer, 0xff, 0xff, 0xff, 0xff)
-      }
-      render_position := (collision_results.points[dir] + offset) * tile_render_unit - 1.0
-      rect := sdl.Rect {
-        x = i32(render_position.x),
-        y = i32(render_position.y),
-        w = 3, 
-        h = 3,
-      }
-      sdl.RenderDrawRect(renderer, &rect)
+        // ensures that if state changes, we won't try to index an invalid animation clip
+        if anim_state != anim_state_prev {
+            anim_frame = 0
+        } else {
+            // if animation state is the same, then we want to perform some animation within the state
+            // since we may want to animate through clips differently depending on the animation state, we switch on the state
+            if anim_state == .WALK {
+                anim_frame += abs(velocity.x) * 4
+                if anim_frame >= cast(f32) len(Plumber_Animation_Clips[powerup][anim_state]) {
+                    anim_frame = 0
+                }
+            }
+        }
     }
-  }
+  
+    camera := &GameState.active_level.camera
+
+    size : Vector2 
+    switch powerup {
+        case .NONE:
+            size = { 1, 1 }
+        case .FIRE:
+            fallthrough
+        case .SUPER:
+            size = { 1, 2 }
+    }
+
+    self_offset     := -(scale * size) / 2
+    render_position := (position + offset + self_offset) * tile_render_unit
+    render_size     := scale * size * tile_render_unit
+
+    clip: sdl.Rect
+    int_anim_frame := int(anim_frame)
+    if int(anim_state) >= 0 && int(anim_state) < len(Plumber_Animation_Clips[powerup]) &&
+        int_anim_frame  >= 0 && int_anim_frame  < len(Plumber_Animation_Clips[powerup][anim_state]) {
+        clip = Plumber_Animation_Clips[powerup][anim_state][int_anim_frame]
+    }
+
+    rect := sdl.Rect {
+        x = cast(i32) render_position.x,
+        y = cast(i32) render_position.y,
+        w = cast(i32) render_size.x, 
+        h = cast(i32) render_size.y,
+    }
+    
+    render_blinking := i_frames != 0 && ((i_frames * 8 / POWERUP_LOST_I_FRAMES) & 1) == 1
+  
+    if render_blinking do sdl.SetTextureAlphaMod(plumber_texture.sdl_texture, 0x22)
+    
+    flip : sdl.RendererFlip = .FACING_LEFT in flags ? .HORIZONTAL : .NONE
+    sdl.RenderCopyEx(renderer, plumber_texture.sdl_texture, &clip, &rect, 0, nil, flip)
+
+    if render_blinking do sdl.SetTextureAlphaMod(plumber_texture.sdl_texture, 0xFF)
+
+    // debug render collision points
+    if show_plumber_collision_points {
+        for dir in Direction(0)..<Direction(8) {
+            if dir in collision_results.push_out {
+                sdl.SetRenderDrawColor(renderer, 0xff, 0x00, 0x00, 0xff)
+            } else {
+                sdl.SetRenderDrawColor(renderer, 0xff, 0xff, 0xff, 0xff)
+            }
+            render_position := (collision_results.points[dir] + offset) * tile_render_unit - 1.0
+            rect := sdl.Rect {
+                x = i32(render_position.x),
+                y = i32(render_position.y),
+                w = 3, 
+                h = 3,
+            }
+            sdl.RenderDrawRect(renderer, &rect)
+        }
+    }
 }
 
 get_plumber_collision_rect :: proc(using plumber: Plumber) -> sdl.FRect {
@@ -624,11 +630,35 @@ plumber_take_damage :: proc(using plumber: ^Plumber) {
     plumber.i_frames = POWERUP_LOST_I_FRAMES
 }
 
-plumber_add_coin :: proc(using plumber: ^Plumber) {
-    coins += 1
+// for now, coin count will always be zero, but maybe we add multi-coins in future? would be relatively trivial
+plumber_add_coins :: proc(using plumber: ^Plumber, coin_count: int, coin_position: Vector2) {
+    coins += coin_count
     if coins >= 100 {
         lives += 1
-        coins = 0
+        coins %= 100
     }
+    // if we add multi-coins need to probably have different point values depending
+    plumber_add_points(plumber, 1, coin_position)
 }
 
+plumber_add_combo_points :: proc(using plumber: ^Plumber, score_combo: ^int, particle_spawn_position: Vector2) {
+    if score_combo^ < 0 do score_combo^ = 0
+    if score_combo^ >= len(point_scores) {
+        lives += 1
+    } else {
+        score += point_scores[score_combo^]
+    }
+    score_combo^ = min(score_combo^ + 1, len(point_scores))
+    spawn_score_particle(score_combo^, particle_spawn_position)
+}                        
+
+plumber_add_points :: proc(using plumber: ^Plumber, score_index: int, particle_spawn_position: Vector2) {
+    score_index := score_index
+    if score_index < 0 do score_index = 0
+    if score_index >= len(point_scores) {
+        lives += 1
+    } else {
+        score += point_scores[score_index]
+    }
+    spawn_score_particle(score_index, particle_spawn_position)
+}                        

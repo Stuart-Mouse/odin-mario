@@ -1,0 +1,17 @@
+enemies [
+    {
+        name "Goomba"
+        movement_style GOOMBA
+        movement_speed 0.025
+        
+        # maybe we want to change these to use units of pixels instead
+        collision_size   = [ 0.875, 0.875 ]
+        collision_offset = [ -0.4375, -0.4375 ]
+        
+        animations [
+            {
+                
+            }
+        ]
+    }
+]
