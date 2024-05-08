@@ -134,6 +134,7 @@ init_game :: proc() -> bool {
     init_plumber_physics()
     init_enemy_templates()
     init_item_animations()
+    init_projectile_animations()
 
     {
         using EditorState
@@ -201,9 +202,13 @@ update_game :: proc() {
     
     for &slot, i in entities.slots {
         if slot.occupied {
-            if !update_entity(&slot.data) {
-                slot.occupied = {}
-    }}}
+            entity := &slot.data
+            update_entity(entity)
+            if .REMOVE_ME in entity.base.entity_flags {
+                slot = {}
+            }
+        }
+    }
     
     for &bank in particles {
         for &slot in bank.slots {

@@ -37,6 +37,18 @@ direction_vectors : [Direction] Vector2 = {
 	.DL = {  1, -1 },
 }
 
+direction_angles : [Direction] f32 = {
+	.U  = 270,
+	.D  =  90,
+	.L  = 180,
+	.R  =   0,
+	.UR = 315,
+	.DR =  45,
+	.UL = 225,
+	.DL = 135,
+}
+
+
 sdl_frect_to_rect :: proc (frect: sdl.FRect) -> sdl.Rect {
 	return {
 		x = i32(frect.x),
@@ -85,6 +97,18 @@ distance_between_points :: proc(p1, p2: Vector2) -> f32 {
   dx := p1.x - p2.x
   dy := p1.y - p2.y
   return math.sqrt((dx * dx) + (dy * dy))
+}
+
+angle_between_points :: proc(p1, p2: Vector2) -> f32 {
+	return math.atan2(p2.y - p1.y, p2.x - p1.x)
+}
+
+unit_vector_given_angle :: proc(angle: f32) -> Vector2 {
+    return { math.cos(angle), math.sin(angle) }
+}
+
+unit_vector_between_points :: proc(p1, p2: Vector2) -> Vector2 {
+	return unit_vector_given_angle(angle_between_points(p1, p2))
 }
 
 lerp :: proc(a, b, lerp: f32) -> f32 {

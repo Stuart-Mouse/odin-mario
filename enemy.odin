@@ -3,6 +3,7 @@ package main
 import sdl "vendor:sdl2"
 import "core:fmt"
 import "core:math"
+import "core:math/rand"
 
 show_enemy_collision_rects := false
 
@@ -33,6 +34,10 @@ find_enemy_template_by_uuid :: proc(uuid: u64) -> ^Enemy_Template {
 //     clear(&enemy_templates)
 // }
 
+// Unfortunately can't make functions to load this stuff from GON easily until I add proper support for enumerated arrays
+// so thanks a lot to Odin for adding needless complications to the type system
+// I would just make the animations not be indexed by enums, but that means adding COUNT values to all my enums and changing the animator's implementation to be worse. so no thanks
+
 // load_enemy_templates :: proc() -> bool {
 //     unload_enemy_templates()
     
@@ -54,13 +59,14 @@ find_enemy_template_by_uuid :: proc(uuid: u64) -> ^Enemy_Template {
 //     return true
 // }
 
+STANDARD_SHELL_SPEED :: 0.125
+
 init_enemy_templates :: proc() {
     goomba: Enemy_Template
     {
         using goomba
         
         name = "Goomba"
-        uuid = 0xdc797d23457d924a
         
         movement_style = .GOOMBA
         movement_speed = 0.025
@@ -81,6 +87,9 @@ init_enemy_templates :: proc() {
             duration = 20,
         })
         
+        animations[.JUMP] = animations[.WALK]
+        animations[.FALL] = animations[.WALK]
+        
         append(&animations[.CRUSHED].frames, Simple_Animation_Frame {
             offset = { -0.5, -0.5 },
             clip   = { 16, 0, 16, 16 },
@@ -97,12 +106,54 @@ init_enemy_templates :: proc() {
     }
     append(&enemy_templates, goomba)
     
+    galoomba: Enemy_Template
+    {
+        using galoomba
+        
+        name = "Galoomba"
+        
+        movement_style = .GOOMBA
+        movement_speed = 0.025
+        
+        collision_size   = { 14.0 / 16.0, 14.0 / 16.0 }
+        collision_offset = -(collision_size / 2)
+        
+        flags |= { .DONT_WALK_OFF_LEDGES }
+        
+        animations[.WALK].flags |= { .LOOP }
+        append(&animations[.WALK].frames, Simple_Animation_Frame {
+            offset   = { -0.5, -0.5 },
+            clip     = { 0, 16, 16, 16 },
+            duration = 20,
+        })
+        append(&animations[.WALK].frames, Simple_Animation_Frame {
+            offset   = { -0.5, -0.5 },
+            clip     = { 0, 16, 16, 16 },
+            flip     = .HORIZONTAL,
+            duration = 20,
+        })
+        
+        append(&animations[.CRUSHED].frames, Simple_Animation_Frame {
+            offset = { -0.5, -0.5 },
+            clip   = { 16, 16, 16, 16 },
+            duration = 30,
+        })
+        
+        animations[.DEAD].flags |= { .LOOP }
+        append(&animations[.DEAD].frames, Simple_Animation_Frame {
+            offset = { -0.5, -0.5 },
+            clip   = { 0, 16, 16, 16 },
+            flip   = .VERTICAL,
+        })
+        
+    }
+    append(&enemy_templates, galoomba)
+    
     green_koopa: Enemy_Template
     {
         using green_koopa
         
         name = "Koopa"
-        uuid = 0x926b5b228b605941
         
         movement_style = .GOOMBA
         movement_speed = 0.025
@@ -112,7 +163,7 @@ init_enemy_templates :: proc() {
         
         flags |= { .SHELLED }
         
-        shell.speed = 0.125
+        shell.speed = STANDARD_SHELL_SPEED
         
         wings.type = .JUMP
         wings.jump.force = 0.2
@@ -128,6 +179,8 @@ init_enemy_templates :: proc() {
             clip     = { 16, 32, 16, 24 },
             duration = 20,
         })
+        animations[.JUMP] = animations[.WALK]
+        animations[.FALL] = animations[.WALK]
         
         animations[.WINGED].flags |= { .LOOP }
         append(&animations[.WINGED].frames, Simple_Animation_Frame {
@@ -178,7 +231,6 @@ init_enemy_templates :: proc() {
         using red_koopa
         
         name = "Red Koopa"
-        uuid = 0x21a9baecd608f062 
         
         movement_style = .GOOMBA
         movement_speed = 0.025
@@ -204,7 +256,6 @@ init_enemy_templates :: proc() {
         using beetle
         
         name = "Beetle"
-        uuid = 0xb63ea8bbd538de07 
         
         movement_style = .GOOMBA
         movement_speed = 0.025
@@ -214,7 +265,7 @@ init_enemy_templates :: proc() {
         
         flags |= { .SHELLED, .IMMUNE_TO_FIRE }
         
-        shell.speed = 0.125
+        shell.speed = STANDARD_SHELL_SPEED
         
         wings.type = .BEETLE
         wings.beetle.speed = 0.1
@@ -243,6 +294,8 @@ init_enemy_templates :: proc() {
             clip     = { 48, 96, 16, 16 },
             duration = 20,
         })
+        animations[.JUMP] = animations[.WALK]
+        animations[.FALL] = animations[.WALK]
         
         animations[.SHELL].flags |= { .LOOP }
         append(&animations[.SHELL].frames, Simple_Animation_Frame {
@@ -281,7 +334,6 @@ init_enemy_templates :: proc() {
         using spiny
         
         name = "Spiny"
-        uuid = 0xc9e780f22d7a908b 
         
         movement_style = .GOOMBA
         movement_speed = 0.025
@@ -291,7 +343,7 @@ init_enemy_templates :: proc() {
         
         flags |= { .SHELLED, .SPIKED }
         
-        shell.speed = 0.125
+        shell.speed = STANDARD_SHELL_SPEED
         
         wings.type = .BEETLE           
         wings.beetle.speed = 0.2
@@ -308,6 +360,8 @@ init_enemy_templates :: proc() {
             clip     = { 16, 112, 16, 16 },
             duration = 20,
         })
+        animations[.JUMP] = animations[.WALK]
+        animations[.FALL] = animations[.WALK]
         
         animations[.WINGED].flags |= { .LOOP }
         append(&animations[.WINGED].frames, Simple_Animation_Frame {
@@ -351,6 +405,218 @@ init_enemy_templates :: proc() {
         })
     }
     append(&enemy_templates, spiny)
+    
+    hammer_bro: Enemy_Template
+    {
+        using hammer_bro
+        
+        name = "Hammer Bro"
+        
+        movement_style = .HAMMER_BRO
+        movement_speed = 0.025
+        
+        collision_size   = { 14.0 / 16.0, 14.0 / 16.0 }
+        collision_offset = -(collision_size / 2)
+        
+        movement_range = 2.5
+        jump_force = { 0.3, 0.45 }
+        
+        flags |= { .DONT_WALK_OFF_LEDGES, .STAY_FACING_PLAYER, .THROWS_THINGS }
+        
+        { 
+            using throw
+            entity_type = .PROJECTILE
+            cooldown_range = { 30, 60 * 3 }
+            
+            using entity_params.projectile
+            type              = .HAMMER
+            velocity          = { 0.07, -0.4 } // velocity.x *= -1 when throw left
+            velocity_variance = { 0.04,  0.2 }
+            acceleration      = { 0, Plumber_Physics.fall_gravity }
+            vel_min = { -1, -1, }
+            vel_max = {  1, Plumber_Physics.max_fall_speed * 0.75, }
+        }
+        
+        animations[.WALK].flags |= { .LOOP }
+        append(&animations[.WALK].frames, Simple_Animation_Frame {
+            offset   = { -0.5, -1.0 },
+            clip     = { 144, 32, 16, 24 },
+            duration = 20,
+        })
+        append(&animations[.WALK].frames, Simple_Animation_Frame {
+            offset   = { -0.5, -1.0 },
+            clip     = { 160, 32, 16, 24 },
+            duration = 20,
+        })
+        
+        append(&animations[.JUMP].frames, Simple_Animation_Frame {
+            offset   = { -0.5, -1.0 },
+            clip     = { 144, 32, 16, 24 },
+            duration = 20,
+        })
+        
+        append(&animations[.THROW].frames, Simple_Animation_Frame {
+            offset   = { -0.5, -1.0 },
+            clip     = { 176, 32, 16, 24 },
+            duration = 5,
+        })
+        append(&animations[.THROW].frames, Simple_Animation_Frame {
+            offset   = { -0.5, -1.0 },
+            clip     = { 192, 32, 16, 24 },
+            duration = 5,
+        })
+        
+        animations[.DEAD].flags |= { .LOOP }
+        append(&animations[.DEAD].frames, Simple_Animation_Frame {
+            offset = { -0.5, -1.0 },
+            clip   = { 144, 32, 16, 24 },
+            flip   = .VERTICAL,
+        })
+        
+    }
+    append(&enemy_templates, hammer_bro)
+    
+    fire_bro: Enemy_Template
+    {
+        using fire_bro
+        
+        name = "Fire Bro"
+        
+        movement_style = .HAMMER_BRO
+        movement_speed = 0.025
+        
+        collision_size   = { 14.0 / 16.0, 14.0 / 16.0 }
+        collision_offset = -(collision_size / 2)
+        
+        movement_range = 2.5
+        jump_force = { 0.3, 0.45 }
+        
+        flags |= { .DONT_WALK_OFF_LEDGES, .STAY_FACING_PLAYER, .THROWS_THINGS }
+        
+        { 
+            using throw
+            entity_type = .PROJECTILE
+            cooldown_range = { 30, 60 * 3 }
+            
+            using entity_params.projectile
+            type              = .FIREBALL
+            velocity          = { 0.1 , 0.05 } // velocity.x *= -1 when throw left
+            velocity_variance = { 0.05, 0.1  }
+            acceleration      = { 0, Plumber_Physics.fall_gravity }
+            vel_min           = { -1, -1, }
+            vel_max           = {  1, Plumber_Physics.max_fall_speed * 0.75, }
+            flags             = { .BOUNCE_ON_FLOOR, .COLLIDE_TILEMAP, .DIE_ON_COLLIDE, .DIE_ON_WALLS }
+        }
+        
+        animations[.WALK].flags |= { .LOOP }
+        append(&animations[.WALK].frames, Simple_Animation_Frame {
+            offset   = { -0.5, -1.0 },
+            clip     = { 144, 56, 16, 24 },
+            duration = 20,
+        })
+        append(&animations[.WALK].frames, Simple_Animation_Frame {
+            offset   = { -0.5, -1.0 },
+            clip     = { 160, 56, 16, 24 },
+            duration = 20,
+        })
+        
+        append(&animations[.JUMP].frames, Simple_Animation_Frame {
+            offset   = { -0.5, -1.0 },
+            clip     = { 144, 56, 16, 24 },
+            duration = 20,
+        })
+        
+        append(&animations[.THROW].frames, Simple_Animation_Frame {
+            offset   = { -0.5, -1.0 },
+            clip     = { 176, 56, 16, 24 },
+            duration = 5,
+        })
+        append(&animations[.THROW].frames, Simple_Animation_Frame {
+            offset   = { -0.5, -1.0 },
+            clip     = { 192, 56, 16, 24 },
+            duration = 5,
+        })
+        
+        animations[.DEAD].flags |= { .LOOP }
+        append(&animations[.DEAD].frames, Simple_Animation_Frame {
+            offset = { -0.5, -1.0 },
+            clip   = { 144, 56, 16, 24 },
+            flip   = .VERTICAL,
+        })
+        
+    }
+    append(&enemy_templates, fire_bro)
+    
+    spike_bro: Enemy_Template
+    {
+        using spike_bro
+        
+        name = "Spike Bro"
+        
+        movement_style = .HAMMER_BRO
+        movement_speed = 0.025
+        
+        collision_size   = { 14.0 / 16.0, 14.0 / 16.0 }
+        collision_offset = -(collision_size / 2)
+        
+        movement_range = 2.5
+        jump_force = { 0.3, 0.45 }
+        
+        flags |= { .DONT_WALK_OFF_LEDGES, .STAY_FACING_PLAYER, .THROWS_THINGS }
+        
+        { 
+            using throw
+            entity_type = .PROJECTILE
+            cooldown_range = { 60, 60 * 5 }
+            
+            using entity_params.projectile
+            type              = .SPIKE_BALL
+            velocity          = { 0.07, -0.2 } // velocity.x *= -1 when throw left
+            velocity_variance = { 0.04,  0.1 }
+            acceleration      = { 0, Plumber_Physics.fall_gravity }
+            vel_min = { -1, -1, }
+            vel_max = {  1, Plumber_Physics.max_fall_speed * 0.75, }
+            flags = { .BOUNCE_ON_WALLS, .BOUNCE_ON_FLOOR, .COLLIDE_TILEMAP }
+        }
+        
+        animations[.WALK].flags |= { .LOOP }
+        append(&animations[.WALK].frames, Simple_Animation_Frame {
+            offset   = { -0.5, -1.0 },
+            clip     = { 144, 80, 16, 24 },
+            duration = 20,
+        })
+        append(&animations[.WALK].frames, Simple_Animation_Frame {
+            offset   = { -0.5, -1.0 },
+            clip     = { 160, 80, 16, 24 },
+            duration = 20,
+        })
+        
+        append(&animations[.JUMP].frames, Simple_Animation_Frame {
+            offset   = { -0.5, -1.0 },
+            clip     = { 144, 80, 16, 24 },
+            duration = 20,
+        })
+        
+        append(&animations[.THROW].frames, Simple_Animation_Frame {
+            offset   = { -0.5, -1.0 },
+            clip     = { 176, 80, 16, 24 },
+            duration = 5,
+        })
+        append(&animations[.THROW].frames, Simple_Animation_Frame {
+            offset   = { -0.5, -1.0 },
+            clip     = { 192, 80, 16, 24 },
+            duration = 5,
+        })
+        
+        animations[.DEAD].flags |= { .LOOP }
+        append(&animations[.DEAD].frames, Simple_Animation_Frame {
+            offset = { -0.5, -1.0 },
+            clip   = { 144, 80, 16, 24 },
+            flip   = .VERTICAL,
+        })
+        
+    }
+    append(&enemy_templates, spike_bro)
 }
 
 Enemy :: struct  {
@@ -360,13 +626,21 @@ Enemy :: struct  {
     flags          : Enemy_Flags,
     animator       : Enemy_Animator,
     
-    walk_dir       : Direction,
-    
+    walk_dir            : Direction,
     player_ignore_clock : int,
+
+    // used to keep hammer bro types within a set area
+    // could also be used to reset entities that wander off screen without being killed, if we wanted to do that
+    init_position : Vector2,
+    jump_clock    : int,
 
     shell: struct {
         clock       : int,
         score_combo : int,
+    },
+    
+    throw: struct {
+        clock : int,
     },
 }
 
@@ -393,7 +667,7 @@ Enemy_Template_Flag  :: enum {
     SHELLED,
     SPIKED,
     WINGED,
-    HAS_PROJECTILE,
+    THROWS_THINGS,
     STAY_FACING_PLAYER,
     NO_COLLIDE_TILEMAP,
 }
@@ -406,18 +680,19 @@ Enemy_Template :: struct {
     
     movement_style   : enum { GOOMBA, HAMMER_BRO },
     movement_speed   : f32,
-    
-    collision_type : enum { ENEMY, COIN },
+    movement_range   : f32, // defines the distance that a hammer bro will stray from starting x position
     
     // for now, we presume this is always the same.
     // if need be in the future, we can probably just put the collision data in the animation
     collision_size   : Vector2,
     collision_offset : Vector2,
     
+    jump_force : [2]f32, // min and max
+    
     wings : struct {
         type : enum { JUMP, VERTICAL, HORIZONTAL, SEEKING, BEETLE },
         using params: struct #raw_union {
-            jump       : struct { force: f32 },
+            jump       : struct { force: f32 }, // remove and use jump_force instead? or replace this with a multiplier?
             vertical   : struct { range, speed: f32 },
             horizontal : struct { range, speed: f32 },
             seeking    : struct { acceleration, speed: f32 },
@@ -429,11 +704,33 @@ Enemy_Template :: struct {
         speed : f32,
     },
     
-    // projectile : struct {
-    //     entity            : ^Entity_Template,
-    //     velocity          : Vector2,
-    //     velocity_variance : Vector2,
-    // },
+    throw : struct {
+        cooldown_range : [2] i32,
+        entity_type : Entity_Type,
+        entity_params: struct #raw_union {
+            item : struct {
+                type              : Item_Type,
+                flags             : Item_Flags,
+                velocity          : Vector2,
+                velocity_variance : Vector2,
+            },
+            enemy: struct {
+                template          : int,
+                velocity          : Vector2,
+                velocity_variance : Vector2,
+            },
+            projectile: struct {
+                type                  : Projectile_Type,
+                flags                 : Projectile_Flags,
+                velocity              : Vector2,
+                velocity_variance     : Vector2,
+                acceleration          : Vector2,
+                friction              : Vector2,
+                vel_min               : Vector2,
+                vel_max               : Vector2,
+            },
+        },
+    },
     
     animations: [Enemy_Animation_State] Simple_Animation,
 }
@@ -442,10 +739,10 @@ Enemy_Animation_State :: enum {
     WALK,
     JUMP,
     FALL,
-    // WAKING_UP, // when a shelled entity is waking up out of his shell
     SHELL,
     WINGED,
     CRUSHED,
+    THROW,
     DEAD,
 }
 
@@ -453,19 +750,21 @@ Enemy_Animator :: Simple_Animator(Enemy_Animation_State)
 
 update_enemy :: proc(using enemy: ^Enemy) -> bool {
     if enemy == nil do return true
-    if enemy.template_index < 0 || enemy.template_index > len(enemy_templates) do return false
-    template := enemy_templates[enemy.template_index]
+    template := &enemy_templates[enemy.template_index]
+    
+    if position_prev == {} do init_position = position // this is very dumb, but maybe works in practice?
     
     position_prev = position
     
-    // skip updating entities not on the screen
+    // skip updating enemies not on the screen
     if position.x < GameState.active_level.camera.position.x - SCREEN_TILE_WIDTH / 2 ||
        position.x > GameState.active_level.camera.position.x + SCREEN_TILE_WIDTH + 2 {
         return true
     }
     
-    // check if the goomba has fallen out of the level
-    if position.y > SCREEN_TILE_HEIGHT + 1 {
+    // check if the enemy has fallen out of the level
+    if position.y > SCREEN_TILE_HEIGHT + 2 {
+        entity_flags |= { .REMOVE_ME }
         return false
     }
     
@@ -483,6 +782,7 @@ update_enemy :: proc(using enemy: ^Enemy) -> bool {
         do_collide_plumber  = false
         do_collide_entities = false
         if .STOPPED in animator.flags {
+            entity_flags |= { .REMOVE_ME }
             return false
         }
     }
@@ -504,17 +804,37 @@ update_enemy :: proc(using enemy: ^Enemy) -> bool {
         movement_speed := template.movement_speed
         if is_enemy_in_shell(enemy^) {
             if .MOVING in flags {
-                movement_speed = template.shell.speed // TODO: factor shell movement speeed into the enemy template
+                movement_speed = template.shell.speed
             } else {
                 movement_speed = 0
             }
         }
         
-        // TODO: improve walking physics
-        if walk_dir == .L {
-            position.x -= movement_speed
-        } else if walk_dir == .R {
-            position.x += movement_speed
+        // if walk dir is not valid and enemy is on the ground, 
+        // then pick the direction to walk based on current velocity
+        // this behaviour is used intentionally when items/enemies pop out of item blocks
+        if walk_dir not_in (Directions { .L, .R }) {
+            if .ON_GROUND in flags {
+                walk_dir = velocity.x > 0 ? .R : .L 
+            }
+        }
+        
+        if template.movement_style == .HAMMER_BRO {
+            if      position.x < init_position.x - template.movement_range do walk_dir = .R
+            else if position.x > init_position.x + template.movement_range do walk_dir = .L
+            
+            if .ON_GROUND in flags {
+                jump_clock -= 1
+                if jump_clock <= 0 {
+                    velocity.y -= lerp(template.jump_force[0], template.jump_force[1], rand.float32())
+                    jump_clock = int(60 + rand.int63_max(60 * 9))
+                }
+            }
+        }
+        
+        #partial switch walk_dir {
+            case .L: position.x -= movement_speed
+            case .R: position.x += movement_speed
         }
         
         if .WINGED in flags {
@@ -531,6 +851,36 @@ update_enemy :: proc(using enemy: ^Enemy) -> bool {
                     } else {
                         velocity.y *= 0.8
                     }
+            }
+        }
+        
+        if .THROWS_THINGS in template.flags {
+            throw.clock -= 1
+            if throw.clock <= 0 {
+                slot := get_next_empty_slot(&GameState.active_level.entities)
+                if slot != nil {
+                    slot.occupied = true
+                    using template.throw
+                    facing_mul := get_enemy_facing_vector(enemy^)
+                    #partial switch entity_type {
+                        case .PROJECTILE:
+                            projectile := cast(^Projectile) &slot.data
+                            init_projectile(projectile, entity_params.projectile.type)
+                            {
+                                using projectile
+                                position     = enemy.position + { 0.5 * facing_mul, -0.5 } // TODO: add throw offset in template
+                                velocity     = (entity_params.projectile.velocity * { facing_mul, 1 }) + (entity_params.projectile.velocity_variance * ({ rand.float32() - 0.5, rand.float32() - 0.5 }))
+                                acceleration = entity_params.projectile.acceleration
+                                vel_min      = entity_params.projectile.vel_min
+                                vel_max      = entity_params.projectile.vel_max
+                                flags        = entity_params.projectile.flags | { .COLLIDE_PLAYER }
+                                // TODO: maybe we want some way for the projectile to ignore entity who spawned it for a limited time? may be tricky
+                            }
+                            fmt.println(projectile)
+                        
+                    }
+                    throw.clock = int(cooldown_range[0] + rand.int31_max(cooldown_range[1] - cooldown_range[0]))
+                }
             }
         }
     }
@@ -632,7 +982,7 @@ update_enemy :: proc(using enemy: ^Enemy) -> bool {
 
 render_enemy :: proc(using enemy: ^Enemy, render_unit: f32, offset: Vector2, alpha_mod: f32 = 1) {
     if enemy.template_index < 0 || enemy.template_index > len(enemy_templates) do return
-    template := enemy_templates[enemy.template_index]
+    template := &enemy_templates[enemy.template_index]
 
     update_enemy_animator(enemy)
 
@@ -640,9 +990,17 @@ render_enemy :: proc(using enemy: ^Enemy, render_unit: f32, offset: Vector2, alp
     current_frame     := &current_animation.frames[animator.current_frame]
     
     flip := current_frame.flip
-    if walk_dir == .R {
+    
+    if .STAY_FACING_PLAYER in template.flags {
+        if GameState.active_level.plumber.position.x > position.x {
+            flip |= .HORIZONTAL
+        } else {
+            flip &~= .HORIZONTAL
+        }
+    } else if walk_dir == .R {
         flip ~= .HORIZONTAL
     }
+    
     if .FLIPPED in flags {
         flip |= .VERTICAL
     }
@@ -681,7 +1039,7 @@ render_enemy :: proc(using enemy: ^Enemy, render_unit: f32, offset: Vector2, alp
 
 get_enemy_collision_rect :: proc(using enemy: Enemy) -> (sdl.FRect) {
     if enemy.template_index < 0 || enemy.template_index > len(enemy_templates) do return {}
-    template := enemy_templates[enemy.template_index]
+    template := &enemy_templates[enemy.template_index]
     return {
         x = (position.x + template.collision_offset.x),
         y = (position.y + template.collision_offset.y),
@@ -694,7 +1052,7 @@ get_enemy_collision_rect :: proc(using enemy: Enemy) -> (sdl.FRect) {
 // will probably use this for the preview in editor
 get_enemy_render_clip :: proc(using enemy: Enemy) -> (sdl.Rect) {
     if enemy.template_index < 0 || enemy.template_index > len(enemy_templates) do return {}
-    template := enemy_templates[enemy.template_index]
+    template := &enemy_templates[enemy.template_index]
     current_animation := &template.animations[animator.state]
     current_frame     := &current_animation.frames[animator.current_frame]
     return current_frame.clip
@@ -709,16 +1067,17 @@ get_enemy_template_icon_clip :: proc(using template: Enemy_Template, crop_x, cro
     return clip
 }
 
-init_enemy :: proc(enemy: ^Enemy, template_index: int) {
+init_enemy :: proc(enemy: ^Enemy, template_index: int, walk_dir: Direction = .L) {
+    enemy.entity_type    = .ENEMY
     enemy.template_index = template_index
-    enemy.walk_dir       = .L
+    enemy.walk_dir       = walk_dir
     enemy.animator.state = .WALK
 }
 
 // return true if we should count points for hitting the enemy
 // we give this info back to caller to handle so that we can handle multi-enemy combos
 shell_hit_enemy :: proc(using enemy: ^Enemy) -> bool {
-    template := enemy_templates[template_index]
+    template := &enemy_templates[template_index]
     if .DEAD not_in flags {
         flags |= { .DEAD, .NO_COLLIDE_TILEMAP }
         velocity.y -= 0.25
@@ -728,7 +1087,7 @@ shell_hit_enemy :: proc(using enemy: ^Enemy) -> bool {
 }
 
 fireball_hit_enemy :: proc(using enemy: ^Enemy) -> bool {
-    template := enemy_templates[template_index]
+    template := &enemy_templates[template_index]
     
     if .IMMUNE_TO_FIRE in template.flags do return false
     if .DEAD           in flags          do return false
@@ -745,20 +1104,24 @@ is_enemy_in_shell :: #force_inline proc(using enemy: Enemy) -> bool {
 
 update_enemy_animator :: proc(using enemy: ^Enemy) {
     if template_index < 0 || template_index > len(enemy_templates) do return
-    template := enemy_templates[template_index]
+    template := &enemy_templates[template_index]
     
     update_enemy_animation_state(enemy)
     step_animator(&animator, &template.animations)
 }
 
 update_enemy_animation_state :: proc(using enemy: ^Enemy) {
+    template := &enemy_templates[enemy.template_index]
     if .CRUSHED in flags {
-        set_animation(&animator, Enemy_Animation_State.CRUSHED)
-    } else if .DEAD in flags {
+        maybe_set_animation(&animator, Enemy_Animation_State.CRUSHED, &template.animations)
+    }
+    else if .DEAD in flags {
         set_animation(&animator, Enemy_Animation_State.DEAD)
-    } else if .WINGED in flags {
+    } 
+    else if .WINGED in flags {
         set_animation(&animator, Enemy_Animation_State.WINGED)
-    } else if is_enemy_in_shell(enemy^) {
+    } 
+    else if is_enemy_in_shell(enemy^) {
         set_animation(&animator, Enemy_Animation_State.SHELL)
         if .MOVING not_in flags {
             animator.flags |= { .STOPPED }
@@ -766,13 +1129,21 @@ update_enemy_animation_state :: proc(using enemy: ^Enemy) {
         } else {
             animator.flags &= ~{ .STOPPED }
         }
-    } else {
+    } 
+    else if .ON_GROUND not_in flags {
+        if velocity.x < 0 {
+            maybe_set_animation(&animator, Enemy_Animation_State.JUMP, &template.animations)
+        } else {
+            maybe_set_animation(&animator, Enemy_Animation_State.FALL, &template.animations)
+        }
+    } 
+    else {
         set_animation(&animator, Enemy_Animation_State.WALK)
     }
 }
 
 enemy_collide_plumber :: proc(using enemy: ^Enemy, plumber: ^Plumber) {
-    template := enemy_templates[enemy.template_index]
+    template := &enemy_templates[enemy.template_index]
     
     p_rect := get_plumber_collision_rect(plumber^)
     e_rect := get_enemy_collision_rect(enemy^)
@@ -846,7 +1217,11 @@ enemy_collide_plumber :: proc(using enemy: ^Enemy, plumber: ^Plumber) {
                     do_player_bounce = false
                 } else {
                     if is_stomped {
-                        flags |= { .CRUSHED, .DEAD }
+                        if len(template.animations[.CRUSHED].frames) > 0 {
+                            flags |= { .CRUSHED, .DEAD }
+                        } else {
+                            flags |= { .DEAD, .NO_COLLIDE_TILEMAP }
+                        }
                     }
                 }
             }
@@ -862,4 +1237,22 @@ enemy_collide_plumber :: proc(using enemy: ^Enemy, plumber: ^Plumber) {
             plumber_take_damage(plumber)
         }
     }
+}
+
+get_enemy_facing_direction :: proc(using enemy: Enemy) -> Direction {
+    template := &enemy_templates[enemy.template_index]
+    
+    if .STAY_FACING_PLAYER in template.flags {
+        if GameState.active_level.plumber.position.x > position.x {
+            return .R
+        }
+        return .L
+    }
+    
+    return walk_dir
+}
+
+// says vector, but really a float because 1d consideration
+get_enemy_facing_vector :: #force_inline proc(enemy: Enemy) -> f32 {
+    return get_enemy_facing_direction(enemy) == .L ? -1 : 1
 }

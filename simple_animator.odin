@@ -49,9 +49,16 @@ set_animation :: proc(animator: ^Simple_Animator($Anim_State), state: Anim_State
     }
 }
 
+// won't change animation state if the desired animation state contains no frames
+maybe_set_animation :: proc(animator: ^Simple_Animator($Anim_State), state: Anim_State, animations: ^[Anim_State] Simple_Animation) {
+    if animator.state != state && len(animations[state].frames) > 0 {
+        start_animation(animator, state)
+    }
+}
+
 step_animator :: proc(animator: ^Simple_Animator($Anim_State), animations: ^[Anim_State] Simple_Animation) {
     current_animation := &animations[animator.state]
-    animator.current_frame = clamp(animator.current_frame, 0, len(current_animation.frames) - 1)
+    // animator.current_frame = clamp(animator.current_frame, 0, len(current_animation.frames) - 1)
     current_frame := &current_animation.frames[animator.current_frame]
 
     if .STOPPED not_in animator.flags {

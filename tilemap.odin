@@ -41,8 +41,7 @@ Tile_Flag :: enum {
   BROKEN,
   EMPTIED,
   HIDDEN,
-  
-  // CONTAINER_RELEASE_ALL_AT_ONCE,
+  CONTAINER_RELEASE_ALL_AT_ONCE,
 }
 
 Tile :: struct {
@@ -50,8 +49,11 @@ Tile :: struct {
     flags      : Tile_Flags,
     bump_clock : u8,
     
-    contains       : Entity_Type,
-    contains_count : u8,
+    container : struct {
+        entity_type  : Entity_Type,
+        entity_param : struct #raw_union { item_type: Item_Type, enemy_template: u16 },
+        count        : u16,
+    }
 }
 
 // We could make this dynamic later on
@@ -63,7 +65,7 @@ Tile_Info :: struct {
   
     // TODO: split into become_on_hit, become_on_broken, become_on_emptied or something 
     become_on_use : u32, // when a tile is bumped or broken, it will turn into this tile type
-  
+    
     // animations that act on a whole tile type
     animation : struct {
         frames  : [MAX_TILE_ANIM_FRAMES] struct {
@@ -116,31 +118,69 @@ bump_tile :: proc(tilemap: ^Tilemap, tile_index: int, bump_type: Tile_Bump_Type,
     if tile.bump_clock == 0 {
         tile.bump_clock = TILE_BUMP_TIME
 
-        if .CONTAINER in ti.collision.flags && tile.contains != nil {
-            // if tile.contains == .COIN && tile.contains_count == 1 {
-            //     plumber_add_coins(&GameState.active_level.plumber, 1, tile_position + {0.5, 0})
-            // }
-            // else {
-                max_spread_count : int : 7
-                excess_count     := max(0, int(tile.contains_count) - max_spread_count)
-                corrected_count  := min(int(tile.contains_count) - 1, max_spread_count)
-                vel_spread       := (cast(f32) corrected_count) * 0.02
-                bonus_height     := max(0.1, min(f32(0.5), f32(excess_count) / 13.0)) // should be bonus y force, not actually height
+        if .CONTAINER in ti.collision.flags && tile.container.entity_type != .NONE {
+            item_spawn_position := tile_position + { 0.5, -0.5 } // + direction_vectors[bump_dir]
+            if .CONTAINER_RELEASE_ALL_AT_ONCE in tile.flags && tile.container.count > 1 {
+                base_angle := direction_angles[.U] * math.PI / 180
                 
-                for i in 0..<int(tile.contains_count) {
-                    vel_scalar := corrected_count == 0 ? 0 : (f32(i) / f32(int(tile.contains_count) - 1) - 0.5) // -0.5 to 0.5
+                // speed at which items are ejected and spread of items get grater as we add more items, to a limit
+                velocity_scalar := lerp(0.2,  0.5  , f32(min(i32(tile.container.count), 50)) / 50.0)
+                spread          := lerp(0.00, 30.00, f32(min(i32(tile.container.count), 10)) / 10.0) * math.PI / 180
                 
+                min_angle := base_angle - spread
+                max_angle := base_angle + spread
+                
+                for i in 0..<int(tile.container.count) {
                     slot := get_next_empty_slot(&GameState.active_level.entities)
                     if slot == nil do break
-                    
-                    init_entity(&slot.data, tile.contains)
-                    slot.data.base.position = tile_position + { 0.5, -0.5 }
-                    slot.data.base.velocity = { vel_spread * vel_scalar, -(0.2 + bonus_height * (0.5 - abs(vel_scalar))) }
                     slot.occupied = true
+                    
+                    #partial switch tile.container.entity_type {
+                        case .ITEM:
+                            item := cast(^Item) &slot.data
+                            init_item(item, tile.container.entity_param.item_type, .U)
+                        case .ENEMY:
+                            enemy := cast(^Enemy) &slot.data
+                            init_enemy(enemy, int(tile.container.entity_param.enemy_template), .U)
+                    }
+                    
+                    slot.data.base.position = item_spawn_position
+                    slot.data.base.velocity = velocity_scalar * unit_vector_given_angle(lerp(min_angle, max_angle, f32(i) / f32(tile.container.count-1)))
                 }
-            // }
-            tile.contains = nil
-            tile.flags |= {.EMPTIED}
+                
+                tile.container.entity_type = .NONE
+                tile.flags |= {.EMPTIED}
+            }
+            else {
+                if tile.container.entity_type == .ITEM && tile.container.entity_param.item_type == .COIN {
+                    plumber_add_coins(&GameState.active_level.plumber, 1, item_spawn_position)
+                    spawn_coin_particle(item_spawn_position)
+                } else {
+                    slot := get_next_empty_slot(&GameState.active_level.entities)
+                    if slot != nil {
+                        slot.occupied = true
+                        
+                        #partial switch tile.container.entity_type {
+                            case .ITEM:
+                                item := cast(^Item) &slot.data
+                                init_item(item, tile.container.entity_param.item_type)
+                            case .ENEMY:
+                                enemy := cast(^Enemy) &slot.data
+                                init_enemy(enemy, int(tile.container.entity_param.enemy_template))
+                        }
+                        
+                        slot.data.base.position = item_spawn_position
+                        slot.data.base.velocity = { 0, -0.2 }
+                    }
+                }
+                
+                tile.container.count -= 1
+                if tile.container.count <= 0 {
+                    tile.container.entity_type = .NONE
+                    tile.flags |= {.EMPTIED}
+                }
+            }
+            
         }
         else if .BREAKABLE in ti.collision.flags {
             if bump_type >= .BIG_PLUMBER {

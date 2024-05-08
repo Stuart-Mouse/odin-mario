@@ -17,7 +17,7 @@ Item_Type :: enum {
     COIN,
     SUPER_MUSHROOM,
     FIRE_FLOWER,
-    ONE_UP_MUSHROOM,
+    // ONE_UP_MUSHROOM,
 }
 
 Item_Flags :: bit_set[Item_Flag]
@@ -84,8 +84,8 @@ init_item_animations :: proc() {
     })
 }
 
-
-init_item :: proc(item: ^Item, type: Item_Type) {
+init_item :: proc(item: ^Item, type: Item_Type, walk_dir: Direction = .L) {
+    item.entity_type = .ITEM
     item.type = type
     set_animation(&item.animator, item.type)
 }
@@ -104,15 +104,18 @@ update_item :: proc(using item: ^Item) -> bool {
     plumber := &GameState.active_level.plumber
 
     if position.y > SCREEN_TILE_HEIGHT + 1 {
-        // entity_flags |= {.REMOVE_ME}
+        entity_flags |= {.REMOVE_ME}
         return false
     }
     
     if type == .SUPER_MUSHROOM {
-        if walk_dir == .L {
-            position.x -= 0.03
-        } else if walk_dir == .R {
-            position.x += 0.03
+        #partial switch walk_dir {
+            case .L: position.x -= 0.03
+            case .R: position.x += 0.03
+            
+            // if walk dir is not valid, pick direction to walk based on current velocity
+            // this behaviour is used intentionally when items/enemies pop out of item blocks
+            case: if .ON_GROUND in flags do walk_dir = velocity.x > 0 ? .R : .L 
         }
     }
     
@@ -124,6 +127,7 @@ update_item :: proc(using item: ^Item) -> bool {
     
     position += velocity
     
+    flags &= ~{ .ON_GROUND }
     
     // collide tilemap
     {
@@ -150,10 +154,11 @@ update_item :: proc(using item: ^Item) -> bool {
             tile := get_tile(tilemap, indexed_tiles[dir])
             if tile != nil && tile_is_bumping(tile^) {
                 #partial switch type {
-                    case .COIN:
-                        plumber_add_coins(plumber, 1, position)
-                        spawn_coin_particle(position)
-                        return false
+                    // case .COIN:
+                        // plumber_add_coins(plumber, 1, position)
+                        // spawn_coin_particle(position)
+                        // entity_flags |= { .REMOVE_ME }
+                        // return false
                     case:
                         velocity.y -= 0.25
                 }
@@ -171,12 +176,17 @@ update_item :: proc(using item: ^Item) -> bool {
             case .COIN:
                 plumber_add_coins(plumber, 1, position)
                 spawn_coin_particle(position)
+                entity_flags |= { .REMOVE_ME }
                 return false
             case .SUPER_MUSHROOM:
                 change_plumber_powerup_state(plumber, .SUPER)
+                plumber_add_points(plumber, 5, position)
+                entity_flags |= { .REMOVE_ME }
                 return false
             case .FIRE_FLOWER:
                 change_plumber_powerup_state(plumber, .FIRE)
+                plumber_add_points(plumber, 5, position)
+                entity_flags |= { .REMOVE_ME }
                 return false
         }
     }
@@ -185,8 +195,6 @@ update_item :: proc(using item: ^Item) -> bool {
 }
 
 render_item :: proc(using item: ^Item, render_unit: f32, offset: Vector2, alpha_mod: f32 = 1) {
-    // step_animator(&animator, &item_animations)
-
     step_animator(&animator, &item_animations)
 
     current_animation := &item_animations[animator.state]
@@ -225,12 +233,6 @@ get_item_collision_rect :: proc(using item: Item) -> sdl.FRect {
     }
 }
 
-shell_hit_item :: proc(using item: ^Item) -> bool {
-    plumber_add_coins(&GameState.active_level.plumber, 1, position)
-    velocity.y = -0.25
-    return false
-}
-
 get_item_icon_clip :: proc(type: Item_Type, crop_x, crop_y: int) -> sdl.Rect {
     animation := item_animations[type]
     if len(animation.frames) == 0 do return {}
@@ -267,4 +269,16 @@ spawn_coin_particle :: proc(spawn_position: Vector2) {
             },
         },
     }
+}
+
+shell_hit_item :: proc(using item: ^Item) -> bool {
+    #partial switch item.type {
+        case .COIN:
+            plumber_add_coins(&GameState.active_level.plumber, 1, position)
+            spawn_coin_particle(position)
+            item.entity_flags |= { .REMOVE_ME }
+        case:
+            velocity.y -= 0.25
+    }
+    return false
 }

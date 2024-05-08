@@ -182,13 +182,26 @@ update_editor :: proc() {
         if tile_details_popup_target == nil {
             imgui.CloseCurrentPopup()
         } else {
-            imgui.ComboEnum("contains", &tile_details_popup_target.contains)
-            if tile_details_popup_target.contains != nil {
-                contains_count := cast(i32) tile_details_popup_target.contains_count
-                if contains_count == 0 do contains_count = 1
-                imgui.SliderInt("contains count", &contains_count, 1, 5)
-                tile_details_popup_target.contains_count = cast(u8) contains_count
+            imgui.ComboEnum("container entity type", &tile_details_popup_target.container.entity_type)
+            #partial switch tile_details_popup_target.container.entity_type {
+                case .ITEM:
+                    imgui.ComboEnum("item type", &tile_details_popup_target.container.entity_param.item_type)
+                case .ENEMY:
+                    enemy_template := &tile_details_popup_target.container.entity_param.enemy_template
+                    if imgui.BeginCombo("enemy template", strings.clone_to_cstring(enemy_templates[enemy_template^].name, context.temp_allocator), {}) {
+                        for et, et_i in enemy_templates {
+                            selected := (enemy_template^ == auto_cast et_i)
+                            if imgui.SelectableEx(strings.clone_to_cstring(et.name, context.temp_allocator), selected, {}, {}) {
+                                enemy_template^ = auto_cast et_i
+                            }
+                        }
+                        imgui.EndCombo()
+                    }
             }
+            container_count := cast(i32) tile_details_popup_target.container.count
+            if container_count <= 0 do container_count = 1
+            imgui.SliderInt("container count", &container_count, 1, 5)
+            tile_details_popup_target.container.count = auto_cast container_count
             imgui.TreeNodeAny("flags", tile_details_popup_target.flags)
         }
         imgui.EndPopup()

@@ -23,30 +23,17 @@ Entity_Type :: enum {
     NONE,
     ENEMY,
     ITEM,
-    // GOOMBA,
-    // MUSHROOM,
-    // SHELL,
-    // BEETLE,
-    // KOOPA,
-    // FIREBALL,
-    // SPINY,
-    // COIN,
+    PROJECTILE,
 }
 
 Entity :: struct #raw_union {
-    base     : Entity_Base,
-    enemy    : Enemy,
-    item     : Item,
-    // goomba   : Goomba,
-    // mushroom : Mushroom,
-    // shell    : Entity_Shell,
-    // beetle   : Beetle,
-    // koopa    : Koopa,
-    // fireball : Fireball,
-    // spiny    : Spiny,
-    // coin     : Coin,
+    base       : Entity_Base,
+    enemy      : Enemy,
+    item       : Item,
+    projectile : Projectile,
 }
 
+// this is silly, maybe we remove this proc, or we could call into the init routines for individual entity types with some default args?
 init_entity :: proc(entity: ^Entity, type: Entity_Type) {
     if entity == nil do return 
     entity.base = {
@@ -54,33 +41,28 @@ init_entity :: proc(entity: ^Entity, type: Entity_Type) {
     }
 }
 
-update_entity :: proc(using entity: ^Entity) -> bool {
-    if entity == nil do return true
-
-    if entity.base.position.x < GameState.active_level.camera.position.x - SCREEN_TILE_WIDTH / 2 ||
-       entity.base.position.x > GameState.active_level.camera.position.x + SCREEN_TILE_WIDTH + 2 {
-        return true
-    }
-
+update_entity :: proc(using entity: ^Entity) {
+    if entity == nil do return
     #partial switch base.entity_type {
-        case .ENEMY: update_enemy(&enemy) or_return
-        case .ITEM : update_item (&item ) or_return
+        case .ENEMY      : update_enemy     (&enemy     )
+        case .ITEM       : update_item      (&item      )
+        case .PROJECTILE : update_projectile(&projectile)
     }
-
-    return true
 }
 
 render_entity :: proc(using entity: ^Entity, render_unit: f32, offset: Vector2, alpha_mod: f32 = 1) {
     #partial switch base.entity_type {
-        case .ENEMY: render_enemy(&enemy, render_unit, offset, alpha_mod)
-        case .ITEM : render_item (&item , render_unit, offset, alpha_mod)
+        case .ENEMY     : render_enemy      (&enemy      , render_unit, offset, alpha_mod)
+        case .ITEM      : render_item       (&item       , render_unit, offset, alpha_mod)
+        case .PROJECTILE: render_projectile (&projectile , render_unit, offset, alpha_mod)
     }
 }
 
 get_entity_collision_rect :: proc(using entity: Entity) -> sdl.FRect {
     #partial switch base.entity_type {
-        case .ENEMY: return get_enemy_collision_rect(enemy)
-        case .ITEM : return get_item_collision_rect (item )
+        case .ENEMY      : return get_enemy_collision_rect     (enemy     )
+        case .ITEM       : return get_item_collision_rect      (item      )
+        case .PROJECTILE : return get_projectile_collision_rect(projectile)
     }
     return {}
 }
@@ -106,6 +88,7 @@ rect_from_position_size_offset :: proc(position, size, offset: Vector2) -> sdl.R
 shell_hit_entity :: proc(using entity: ^Entity) -> bool {
     #partial switch base.entity_type {
         case .ENEMY: return shell_hit_enemy(&enemy)
+        case .ITEM : return shell_hit_item (&item )
     }
     return false
 }
@@ -113,33 +96,7 @@ shell_hit_entity :: proc(using entity: ^Entity) -> bool {
 fireball_hit_entity :: proc(using entity: ^Entity) -> bool {
     #partial switch base.entity_type {
         case .ENEMY: return fireball_hit_enemy(&enemy)
+        case .PROJECTILE: return true
     }
-    return true
+    return false
 }
-
-// block_hit_entity :: proc(using entity: ^Entity, bump_dir: Direction = .U) {
-//     bump_vel := Vector2 { 0, 0.25 }
-//     if bump_dir == .L { // these are sorta flipped bc of how we get the sides in entity code. should change this probably
-//         bump_vel.x = 0.05
-//     } else if bump_dir == .R {
-//         bump_vel.x = -0.05
-//     }
-
-//     #partial switch entity.base.tag {
-//         case .MUSHROOM, .COIN: 
-//             base.velocity -= bump_vel
-
-//         case .GOOMBA, .SPINY:
-//             base.velocity -= bump_vel
-//             base.flags |= {.DEAD}
-
-//         case .BEETLE, .KOOPA:
-//             base.flags &= ~{.WINGED}
-//             shell.shell_clock = 60 * 5
-//             fallthrough
-
-//         case .SHELL:
-//             base.flags ~= {.FLIPPED}
-//             base.velocity -= bump_vel
-//     }
-// }

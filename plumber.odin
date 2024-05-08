@@ -66,6 +66,7 @@ calc_plumber_physics :: proc() {
 show_plumber_collision_points : bool
 
 Plumber_Input_Keys :: enum {
+  UP, 
   DOWN, 
   LEFT,
   RIGHT,
@@ -125,6 +126,7 @@ change_plumber_powerup_state :: proc(plumber: ^Plumber, powerup: Powerup) {
 
 init_plumber_controller :: proc(using plumber: ^Plumber) {
   using Plumber_Input_Keys
+  controller[UP       ] = { sc = .UP    }
   controller[DOWN     ] = { sc = .DOWN  }
   controller[LEFT     ] = { sc = .LEFT  }
   controller[RIGHT    ] = { sc = .RIGHT }
@@ -167,8 +169,8 @@ update_plumber :: proc(using plumber: ^Plumber) {
         decel          := release_decel // amount of deceleration to apply
         decel_to_speed := walk_speed    // what speed to decelerate the player towards
         if bool(controller[RUN].state & KEYSTATE_PRESSED) {
-            move_accel = run_accel
-            move_speed = run_speed
+            move_accel     = run_accel
+            move_speed     = run_speed
             decel_to_speed = run_speed
         }
 
@@ -261,15 +263,26 @@ update_plumber :: proc(using plumber: ^Plumber) {
     }
 
     if powerup == .FIRE && .CROUCHING not_in flags && bool(controller[RUN].state == KEYSTATE_PRESSED) {
-        // slot := get_next_empty_slot(&GameState.active_level.entities)
-        // if slot != nil {
-        //     slot.occupied = true
-        //     init_entity(&slot.data, .FIREBALL)
+        slot := get_next_empty_slot(&GameState.active_level.entities)
+        if slot != nil {
+            slot.occupied = true
             
-        //     facing_mul : f32 = .FACING_LEFT in flags ? -1 : 1
-        //     slot.data.base.position = plumber.position + Vector2 { 0.5 * facing_mul, 0 }
-        //     slot.data.base.velocity = Vector2 { 0.2 * facing_mul, 0.1 }
-        // }
+            facing_mul: f32 = .FACING_LEFT in flags ? -1 : 1
+            shoot_up := bool(controller[UP].state & KEYSTATE_PRESSED)
+            
+            projectile := cast(^Projectile) &slot.data
+            
+            init_projectile(projectile, .FIREBALL)
+            {
+                using projectile
+                position     = plumber.position + { 0.5 * facing_mul, 0 }
+                velocity     = { 0.2 * facing_mul, shoot_up ? -0.2 : 0.1 }
+                acceleration = { 0, Plumber_Physics.fall_gravity }
+                vel_min      = { -1, -1 }
+                vel_max      = {  1, Plumber_Physics.max_fall_speed * 0.75 }
+                flags        = { .COLLIDE_TILEMAP, .COLLIDE_ENTITIES, .BOUNCE_ON_FLOOR, .DIE_ON_COLLIDE, .DIE_ON_WALLS }
+            }
+        }
     }
 
     flags &= ~{ .ON_GROUND }
