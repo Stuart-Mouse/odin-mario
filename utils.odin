@@ -191,7 +191,7 @@ Slot :: struct($T: typeid) {
 }
 
 get_next_empty_slot :: proc(using arr: ^SlotArray($T, $N)) -> ^Slot(T) {
-  for &slot in slots {
+    for &slot in slots {
 		if !slot.occupied {
 			return &slot
 		}

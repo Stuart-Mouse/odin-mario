@@ -16,16 +16,12 @@ InputKey :: struct {
 }
 
 update_input_controller :: proc(controller: [] InputKey) {
-  keymod := SDL.GetModState() & (SDL.KMOD_ALT | SDL.KMOD_CTRL | SDL.KMOD_SHIFT)
-  /*
-    KMOD_ALT, _CTRL, and _SHIFT include bit flags for both left and right variants.
-    If any of these are set, we OR in the rest so that 
-  */
-  if keymod & SDL.KMOD_ALT   != {} do keymod |= SDL.KMOD_ALT
-  if keymod & SDL.KMOD_CTRL  != {} do keymod |= SDL.KMOD_CTRL
-  if keymod & SDL.KMOD_SHIFT != {} do keymod |= SDL.KMOD_SHIFT
+    keymod := SDL.GetModState() & (SDL.KMOD_ALT | SDL.KMOD_CTRL | SDL.KMOD_SHIFT)
+    if keymod & SDL.KMOD_ALT   != {} do keymod |= SDL.KMOD_ALT
+    if keymod & SDL.KMOD_CTRL  != {} do keymod |= SDL.KMOD_CTRL
+    if keymod & SDL.KMOD_SHIFT != {} do keymod |= SDL.KMOD_SHIFT
 
-  keyboard := SDL.GetKeyboardState(nil)
+    keyboard := SDL.GetKeyboardState(nil)
 	for &key in controller {
 		state : u32 = 0
 		if key.mod == keymod {
@@ -65,7 +61,8 @@ update_mouse :: proc() {
 	Mouse.wheel_updated  = KeyState(u32(Mouse.wheel_updated) & 0b11)
 	if Mouse.wheel_updated == KEYSTATE_UP {
 		Mouse.wheel = { 0, 0 }
-  }
+    }
+    
 	state : u32
 	state = u32(bool(button_mask & u32(SDL.BUTTON(SDL.BUTTON_LEFT  ))))
 	Mouse.left   = ((state | (Mouse.left   << 1)) & 0b11)

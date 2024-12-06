@@ -24,12 +24,12 @@ load_tile_info :: proc() -> bool {
         append(&tile_info_lookup, empty_tile_ti)
     }
     
-    ctxt: gon.SAX_Parse_Context
+    ctxt: gon.Parser
     
     gon.set_file_to_parse(&ctxt, string(file))
     gon.add_data_binding(&ctxt, tile_info_lookup, "tiles")
     gon.add_event_handler(&ctxt.event_handler, .FIELD_READ, 
-        proc(ctxt: ^gon.SAX_Parse_Context, field: ^gon.SAX_Field) -> gon.SAX_Return_Code {
+        proc(ctxt: ^gon.Parser, field: ^gon.SAX_Field) -> gon.SAX_Return_Code {
             if field.name == "frames" {
                 if field.parent.data_binding.id == typeid_of(Tile_Info) {
                     tile_info := cast(^Tile_Info) field.parent.data_binding.data
