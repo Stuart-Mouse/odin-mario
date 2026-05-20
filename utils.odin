@@ -4,7 +4,7 @@ import sdl "vendor:sdl2"
 import "core:math/rand"
 import "core:math"
 import "core:fmt"
-import "core:runtime"
+import "base:runtime"
 
 Vec2i   :: [2] i32
 Vector2 :: [2] f32
